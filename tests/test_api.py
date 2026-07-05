@@ -82,3 +82,23 @@ async def test_publishers(client, api_publisher):
     data = res.json()
     ids = [p["id"] for p in data]
     assert "apipub" in ids
+
+
+async def test_stats(client, api_book):
+    res = await client.get("/stats")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["total_books"] >= 1
+    publisher_ids = [row["publisher_id"] for row in data["by_publisher"]]
+    assert api_book.publisher_id in publisher_ids
+    sources = [row["source"] for row in data["by_source"]]
+    assert "google_books" in sources
+    assert "last_runs" in data
+
+
+async def test_sync_status_idle(client):
+    res = await client.get("/sync/status")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["running"] is False
+    assert data["last_runs"] == []

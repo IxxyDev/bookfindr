@@ -19,6 +19,9 @@ from app.services.types import BookRecord
 
 logger = logging.getLogger(__name__)
 
+# Guards against concurrent syncs (manual trigger vs scheduled job).
+sync_lock = asyncio.Lock()
+
 
 def _filter_recent_records(records: List[BookRecord], window_days: int) -> List[BookRecord]:
     today = date.today()
@@ -101,8 +104,9 @@ async def run_sync(
 async def run_once_from_cli(publisher_id: Optional[str] = None, dry_run: bool = False) -> None:
     await init_db()
     config = load_publishers()
-    async with get_async_session()() as session:
-        await run_sync(session, config, publisher_id=publisher_id, dry_run=dry_run)
+    async with sync_lock:
+        async with get_async_session()() as session:
+            await run_sync(session, config, publisher_id=publisher_id, dry_run=dry_run)
 
 
 def main() -> None:

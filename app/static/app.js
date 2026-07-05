@@ -310,17 +310,37 @@ function closeModal() {
   modal.classList.remove("open");
 }
 
+async function waitForSyncToFinish() {
+  // Poll /sync/status every 3s, up to ~15 minutes.
+  for (let i = 0; i < 300; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    try {
+      const res = await fetch("/sync/status");
+      if (!res.ok) continue;
+      const data = await res.json();
+      if (!data.running) return true;
+      statusEl.textContent = "Синхронизация выполняется…";
+    } catch (err) {
+      console.error(err);
+    }
+  }
+  return false;
+}
+
 async function syncNow() {
   syncBtn.disabled = true;
   syncBtn.textContent = "Синхронизация…";
   try {
-    await fetch("/sync/run", {
+    const res = await fetch("/sync/run", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ publisher_id: publisherSelect.value || null }),
     });
-    fetchBooks(true);
-    statusEl.textContent = "Синхронизация завершена";
+    if (!res.ok && res.status !== 409) throw new Error("Sync start failed");
+    statusEl.textContent = "Синхронизация запущена…";
+    const finished = await waitForSyncToFinish();
+    await fetchBooks(true);
+    statusEl.textContent = finished ? "Синхронизация завершена" : "Синхронизация ещё идёт";
   } catch (err) {
     console.error(err);
     statusEl.textContent = "Ошибка синхронизации";
