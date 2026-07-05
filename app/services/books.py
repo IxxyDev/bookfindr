@@ -1,0 +1,140 @@
+import hashlib
+import logging
+from datetime import date, datetime, timezone
+from typing import Iterable, Optional, Tuple
+from uuid import uuid4
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.book import Book
+from app.models.book_source import BookSource
+from app.repositories.books import BookRepository
+from app.services.types import SOURCE_PRIORITY, BookRecord
+
+logger = logging.getLogger(__name__)
+
+
+def build_dedupe_key(record: BookRecord) -> str:
+    author_part = "|".join(a.lower() for a in record.authors or [])
+    key_base = f"{record.title.strip().lower()}|{record.publisher_id}|{author_part}"
+    return hashlib.sha1(key_base.encode("utf-8")).hexdigest()
+
+
+async def find_existing_book(
+    repo: BookRepository, record: BookRecord, dedupe_key: str | None = None
+) -> Optional[Book]:
+    key = dedupe_key or record.dedupe_key or build_dedupe_key(record)
+    return await repo.find_existing(record.isbn_13, record.isbn_10, key)
+
+
+def _should_replace(current_source: Optional[str], incoming_source: str) -> bool:
+    current_score = SOURCE_PRIORITY.get(current_source or "", 0)
+    incoming_score = SOURCE_PRIORITY.get(incoming_source, 0)
+    return incoming_score > current_score
+
+
+def merge_book(existing: Book, record: BookRecord) -> Tuple[Book, bool]:
+    updated = False
+    source_update = _should_replace(existing.source_primary, record.source)
+
+    def set_if_better(attr: str, new_value):
+        nonlocal updated
+        current = getattr(existing, attr)
+        if new_value is None:
+            return
+        if current is None or source_update:
+            if current != new_value:
+                setattr(existing, attr, new_value)
+                updated = True
+
+    set_if_better("title", record.title)
+    set_if_better("subtitle", record.subtitle)
+    set_if_better("authors", record.authors)
+    set_if_better("language", record.language)
+    set_if_better("subjects", record.subjects)
+    set_if_better("topics", record.topics)
+    set_if_better("description", record.description)
+    set_if_better("isbn_10", record.isbn_10)
+    set_if_better("isbn_13", record.isbn_13)
+    set_if_better("page_count", record.page_count)
+    set_if_better("print_type", record.print_type)
+    set_if_better("published_date", record.published_date)
+    set_if_better("cover_url", record.cover_url)
+    set_if_better("info_url", record.info_url)
+
+    if source_update:
+        existing.source_primary = record.source
+        updated = True
+
+    keys = existing.source_keys or {}
+    if record.source not in keys or keys.get(record.source) != record.source_key:
+        keys[record.source] = record.source_key
+        existing.source_keys = keys
+        updated = True
+
+    return existing, updated
+
+
+async def attach_source(repo: BookRepository, book_id: str, record: BookRecord) -> None:
+    source = BookSource(
+        id=str(uuid4()),
+        book_id=book_id,
+        source=record.source,
+        source_key=record.source_key,
+        raw=record.raw,
+        fetched_at=datetime.now(timezone.utc),
+    )
+    await repo.add_source(source)
+
+
+async def upsert_records(session: AsyncSession, records: Iterable[BookRecord]) -> tuple[int, int]:
+    repo = BookRepository(session)
+    new_count = 0
+    updated_count = 0
+    for record in records:
+        dedupe_key = build_dedupe_key(record)
+        record.dedupe_key = dedupe_key
+        existing = await find_existing_book(repo, record, dedupe_key=dedupe_key)
+        if existing:
+            merged, changed = merge_book(existing, record)
+            if changed:
+                merged.dedupe_key = record.dedupe_key
+                updated_count += 1
+            await attach_source(repo, merged.id, record)
+        else:
+            book_id = str(uuid4())
+            book = Book(
+                id=book_id,
+                title=record.title,
+                subtitle=record.subtitle,
+                authors=record.authors or [],
+                publisher_id=record.publisher_id,
+                language=record.language,
+                subjects=record.subjects or [],
+                topics=record.topics or [],
+                description=record.description,
+                isbn_10=record.isbn_10,
+                isbn_13=record.isbn_13,
+                dedupe_key=record.dedupe_key,
+                page_count=record.page_count,
+                print_type=record.print_type,
+                published_date=record.published_date,
+                cover_url=record.cover_url,
+                info_url=record.info_url,
+                source_primary=record.source,
+                source_keys={record.source: record.source_key},
+            )
+            await repo.add_book(book)
+            await attach_source(repo, book_id, record)
+            new_count += 1
+    return new_count, updated_count
+
+
+async def purge_outdated_books(session: AsyncSession, cutoff: date) -> int:
+    repo = BookRepository(session)
+    return await repo.delete_before_date(cutoff)
+
+
+async def purge_future_books(session: AsyncSession, today: date) -> int:
+    repo = BookRepository(session)
+    return await repo.delete_after_date(today)

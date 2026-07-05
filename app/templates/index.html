@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bookfindr</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="page">
+<div class="backdrop"></div>
+
+<header class="hero">
+    <div>
+        <p class="eyebrow">Последние {{ window_days }} дней</p>
+        <h1>Bookfindr</h1>
+        <p class="muted">Собираем новые компьютерные книги по всем издательствам из конфигурации.</p>
+        <div class="hero-actions">
+            <button id="syncBtn" class="primary">Обновить каталоги</button>
+            <button id="themeToggle" class="ghost">🌙 Dark</button>
+            <span id="status" class="muted">Ожидает запроса…</span>
+            <span id="totalCount" class="muted"></span>
+        </div>
+    </div>
+    <div class="hero-card">
+        <div class="stat">
+            <span class="label">Окно</span>
+            <span class="value">{{ window_days }} дней</span>
+        </div>
+        <div class="stat">
+            <span class="label">Источники</span>
+            <span class="value">Google Books · Open Library</span>
+        </div>
+        <div class="stat">
+            <span class="label">База</span>
+            <span class="value">SQLite + FTS</span>
+        </div>
+    </div>
+</header>
+
+<section class="panel filters">
+    <div class="filter-grid">
+        <label>
+            Издательство
+            <select id="publisher"></select>
+        </label>
+        <label>
+            Язык
+            <input id="language" placeholder="en, ru">
+        </label>
+        <label>
+            Тематика
+            <input id="subject" placeholder="computers, security">
+        </label>
+        <label>
+            Дата, с
+            <input id="date_from" type="date">
+        </label>
+        <label>
+            Дата, до
+            <input id="date_to" type="date">
+        </label>
+        <label class="search">
+            Поиск
+            <input id="query" placeholder="название или описание">
+        </label>
+    </div>
+    <div class="filter-actions">
+        <button id="applyFilters" class="primary ghost">Применить</button>
+        <button id="clearFilters" class="ghost">Сбросить</button>
+    </div>
+</section>
+
+<main class="panel">
+    <div id="books" class="book-grid"></div>
+    <div class="load-more">
+        <button id="loadMore" class="primary ghost" style="display:none;">Загрузить ещё</button>
+    </div>
+</main>
+
+<div id="detailModal" class="modal">
+    <div class="modal-card">
+        <button id="modalClose" class="ghost close">×</button>
+        <div id="modalBody"></div>
+    </div>
+    <div class="modal-backdrop"></div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,256 @@
+publishers:
+  # Global / English
+  - id: oreilly
+    name: O'Reilly Media
+    languages: [en]
+    subjects: [computers]
+    google_books:
+      inpublishers: ["O'Reilly Media"]
+      subjects: ["computers"]
+    open_library:
+      publishers: ["O'Reilly Media"]
+      languages: ["eng"]
+    connectors: ["oreilly_new_upcoming"]
+  - id: addison_wesley
+    name: Addison-Wesley Professional
+    languages: [en]
+    subjects: [computers]
+    google_books:
+      inpublishers: ["Addison-Wesley Professional", "Addison Wesley"]
+      subjects: ["computers"]
+    open_library:
+      publishers: ["Addison-Wesley", "Addison-Wesley Professional"]
+      languages: ["eng"]
+    connectors: ["addison_wesley_api"]
+  - id: pearson
+    name: Pearson
+    languages: [en]
+    subjects: [computers]
+    google_books:
+      inpublishers: ["Pearson", "Pearson Education"]
+      subjects: ["computers"]
+    open_library:
+      publishers: ["Pearson"]
+      languages: ["eng"]
+    connectors: ["pearson_api"]
+  - id: apress
+    name: Apress
+    languages: [en]
+    subjects: [computers]
+    google_books:
+      inpublishers: ["Apress"]
+      subjects: ["computers"]
+    open_library:
+      publishers: ["Apress"]
+      languages: ["eng"]
+    connectors: ["apress_new"]
+  - id: packt
+    name: Packt Publishing
+    languages: [en]
+    subjects: [computers]
+    google_books:
+      inpublishers: ["Packt Publishing"]
+      subjects: ["computers"]
+    open_library:
+      publishers: ["Packt Publishing"]
+      languages: ["eng"]
+    connectors: ["packt_search"]
+  - id: nostarch
+    name: No Starch Press
+    languages: [en]
+    subjects: [computers]
+    google_books:
+      inpublishers: ["No Starch Press"]
+      subjects: ["computers"]
+    open_library:
+      publishers: ["No Starch Press"]
+      languages: ["eng"]
+    connectors: ["nostarch_new"]
+  - id: manning
+    name: Manning Publications
+    languages: [en]
+    subjects: [computers]
+    google_books:
+      inpublishers: ["Manning Publications"]
+      subjects: ["computers"]
+    open_library:
+      publishers: ["Manning Publications"]
+      languages: ["eng"]
+    connectors: ["manning_catalog"]
+  - id: wrox
+    name: Wrox Press
+    languages: [en]
+    subjects: [computers]
+    google_books:
+      inpublishers: ["Wrox", "Wrox Press"]
+      subjects: ["computers"]
+    open_library:
+      publishers: ["Wrox Press"]
+      languages: ["eng"]
+    connectors: ["wrox_api"]
+  - id: sams
+    name: Sams Publishing
+    languages: [en]
+    subjects: [computers]
+    google_books:
+      inpublishers: ["Sams Publishing", "Sams"]
+      subjects: ["computers"]
+    open_library:
+      publishers: ["Sams", "Sams Publishing"]
+      languages: ["eng"]
+    connectors: ["informit_new"]
+
+  # Russian-language publishers
+  - id: bhv
+    name: БХВ-Петербург
+    aliases: ["BHV", "БХВ", "BHV-Petersburg"]
+    languages: [ru]
+    subjects: [computers]
+    google_books:
+      inpublishers: ["БХВ-Петербург", "BHV-Petersburg", "БХВ"]
+      subjects: ["computers"]
+    open_library:
+      publishers: ["БХВ-Петербург", "BHV-Petersburg"]
+      languages: ["rus"]
+    connectors: ["bhv_store"]
+  - id: miroma
+    name: Miroma Book
+    languages: [ru]
+    subjects: [computers]
+    connectors: ["miroma_price"]
+    google_books:
+      inpublishers: ["Miroma Book", "Мирома"]
+      subjects: ["computers"]
+    open_library:
+      publishers: ["Miroma Book"]
+      languages: ["rus"]
+  - id: dmk
+    name: ДМК Пресс
+    aliases: ["DMK-Press", "ДМК-Пресс"]
+    languages: [ru]
+    subjects: [computers]
+    google_books:
+      inpublishers: ["DMK-Press", "ДМК-Пресс"]
+      subjects: ["computers"]
+    open_library:
+      publishers: ["DMK-Press", "ДМК-Пресс"]
+      languages: ["rus"]
+    connectors: ["dmk_catalog"]
+  - id: eunivers
+    name: E-Univers
+    languages: [ru]
+    subjects: [computers]
+    google_books:
+      inpublishers: ["E-Univers", "Э-Универс"]
+      subjects: ["computers"]
+    open_library:
+      publishers: ["E-Univers"]
+      languages: ["rus"]
+    connectors: ["eunivers_catalog"]
+  - id: piter
+    name: Питер
+    aliases: ["Piter"]
+    languages: [ru]
+    subjects: [computers]
+    google_books:
+      inpublishers: ["Питер", "Piter"]
+      subjects: ["computers"]
+    open_library:
+      publishers: ["Питер", "Piter"]
+      languages: ["rus"]
+    connectors: ["piter_catalog"]
+  - id: dialectika
+    name: Диалектика-Вильямс
+    aliases: ["Вильямс", "Williams Publishing", "Dialektika"]
+    languages: [ru]
+    subjects: [computers]
+    google_books:
+      inpublishers: ["Вильямс", "Диалектика-Вильямс", "Williams Publishing", "Dialektika"]
+      subjects: ["computers"]
+    open_library:
+      publishers: ["Вильямс", "Williams Publishing"]
+      languages: ["rus"]
+    connectors: ["dialektika_catalog", "williams_new"]
+  - id: eksmo
+    name: Эксмо (компьютерная литература)
+    aliases: ["Eksmo"]
+    languages: [ru]
+    subjects: [computers]
+    google_books:
+      inpublishers: ["Эксмо", "Eksmo"]
+      subjects: ["computers"]
+    open_library:
+      publishers: ["Эксмо", "Eksmo"]
+      languages: ["rus"]
+    connectors: ["eksmo_it"]
+  - id: fizmatlit
+    name: Физматлит
+    languages: [ru]
+    subjects: [computers]
+    google_books:
+      inpublishers: ["Физматлит"]
+      subjects: ["computers", "informatics"]
+    open_library:
+      publishers: ["Физматлит"]
+      languages: ["rus"]
+    connectors: ["fizmatlit_new"]
+  - id: binom
+    name: Бином-Пресс
+    aliases: ["БИНОМ"]
+    languages: [ru]
+    subjects: [computers]
+    google_books:
+      inpublishers: ["Бином", "Бином-Пресс"]
+      subjects: ["computers", "informatics"]
+    open_library:
+      publishers: ["Бином", "Бином-Пресс"]
+      languages: ["rus"]
+    connectors: ["binom_new"]
+  - id: gelios_arv
+    name: Гелиос АРВ
+    languages: [ru]
+    subjects: [computers]
+    google_books:
+      inpublishers: ["Гелиос АРВ", "Gelios ARV"]
+      subjects: ["computers"]
+    open_library:
+      publishers: ["Гелиос АРВ"]
+      languages: ["rus"]
+    connectors: ["gelios_catalog"]
+  - id: nauka_technika
+    name: Наука и техника
+    languages: [ru]
+    subjects: [computers]
+    google_books:
+      inpublishers: ["Наука и техника"]
+      subjects: ["computers"]
+    open_library:
+      publishers: ["Наука и техника"]
+      languages: ["rus"]
+    connectors: ["nit_catalog"]
+  - id: ast
+    name: АСТ (компьютерная литература)
+    aliases: ["AST"]
+    languages: [ru]
+    subjects: [computers]
+    google_books:
+      inpublishers: ["АСТ", "AST"]
+      subjects: ["computers"]
+    open_library:
+      publishers: ["АСТ", "AST"]
+      languages: ["rus"]
+    connectors: ["ast_it"]
+  - id: knorus
+    name: КНОРУС
+    aliases: ["Knorus"]
+    languages: [ru]
+    subjects: [computers]
+    google_books:
+      inpublishers: ["КНОРУС", "Knorus"]
+      subjects: ["computers", "informatics"]
+    open_library:
+      publishers: ["КНОРУС", "Knorus"]
+      languages: ["rus"]
+    connectors: ["knorus_catalog"]
+
+window_days: 90
