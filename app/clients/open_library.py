@@ -8,10 +8,12 @@ from app.core.config import PublisherConfig, Settings, get_settings
 from app.services.types import BookRecord
 from app.utils.dates import parse_date
 from app.utils.filters import is_computing as _is_computing_check
+from app.utils.http import get_with_retries
 
 logger = logging.getLogger(__name__)
 
 OPEN_LIBRARY_SEARCH = "https://openlibrary.org/search.json"
+MAX_PAGES = 50
 
 
 async def fetch_open_library(
@@ -45,17 +47,19 @@ async def fetch_open_library(
                     params["language"] = languages[0]
                 if subjects:
                     params["subject"] = ",".join(subjects)
-                resp = await client.get(OPEN_LIBRARY_SEARCH, params=params)
-                resp.raise_for_status()
+                resp = await get_with_retries(client, OPEN_LIBRARY_SEARCH, params=params)
                 data = resp.json()
                 docs = data.get("docs") or []
                 if not docs:
                     break
+                added_this_page = 0
+                page_too_old = False
                 for doc in docs:
                     published = _parse_publish_date(doc.get("publish_date"))
                     if not published:
                         continue
                     if published < cutoff:
+                        page_too_old = True
                         continue
                     if not _is_computing(doc):
                         continue
@@ -86,9 +90,15 @@ async def fetch_open_library(
                         raw=doc,
                     )
                     results.append(record)
+                    added_this_page += 1
                     if len(results) >= cfg.max_results_per_source:
                         return results
+                # sort=new: a page with only out-of-window docs means the rest is older
+                if page_too_old and added_this_page == 0:
+                    break
                 page += 1
+                if page > MAX_PAGES:
+                    break
     return results
 
 

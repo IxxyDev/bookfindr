@@ -8,10 +8,13 @@ from app.core.config import PublisherConfig, Settings, get_settings
 from app.services.types import BookRecord
 from app.utils.dates import parse_date
 from app.utils.filters import is_computing as _is_computing_check
+from app.utils.http import get_with_retries
 
 logger = logging.getLogger(__name__)
 
 GOOGLE_BOOKS_ENDPOINT = "https://www.googleapis.com/books/v1/volumes"
+# Google Books rejects startIndex beyond ~1000 anyway
+MAX_START_INDEX = 1000
 
 
 async def fetch_google_books(
@@ -46,21 +49,20 @@ async def fetch_google_books(
                     }
                     if cfg.google_books_api_key:
                         params["key"] = cfg.google_books_api_key
-                    resp = await client.get(GOOGLE_BOOKS_ENDPOINT, params=params)
-                    if resp.status_code == 429:
-                        logger.warning("Rate limited by Google Books")
-                        break
-                    resp.raise_for_status()
+                    resp = await get_with_retries(client, GOOGLE_BOOKS_ENDPOINT, params=params)
                     data = resp.json()
                     items = data.get("items") or []
                     if not items:
                         break
+                    added_this_page = 0
+                    page_too_old = False
                     for item in items:
                         volume = item.get("volumeInfo", {})
                         published = parse_date(volume.get("publishedDate"))
                         if not published:
                             continue
                         if published < cutoff:
+                            page_too_old = True
                             continue
                         if not _is_computing(volume):
                             continue
@@ -91,9 +93,16 @@ async def fetch_google_books(
                             raw=item,
                         )
                         results.append(record)
+                        added_this_page += 1
                         if len(results) >= cfg.max_results_per_source:
                             return results
+                    # orderBy=newest: once a page yields only out-of-window items,
+                    # everything further is older still
+                    if page_too_old and added_this_page == 0:
+                        break
                     start_index += 40
+                    if start_index >= MAX_START_INDEX:
+                        break
     return results
 
 

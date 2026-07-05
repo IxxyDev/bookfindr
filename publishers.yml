@@ -43,7 +43,7 @@ publishers:
     open_library:
       publishers: ["Apress"]
       languages: ["eng"]
-    connectors: ["apress_new"]
+    connectors: []  # site scraper not implemented yet; aggregators only
   - id: packt
     name: Packt Publishing
     languages: [en]
@@ -65,7 +65,7 @@ publishers:
     open_library:
       publishers: ["No Starch Press"]
       languages: ["eng"]
-    connectors: ["nostarch_new"]
+    connectors: []  # site scraper not implemented yet; aggregators only
   - id: manning
     name: Manning Publications
     languages: [en]
@@ -98,7 +98,7 @@ publishers:
     open_library:
       publishers: ["Sams", "Sams Publishing"]
       languages: ["eng"]
-    connectors: ["informit_new"]
+    connectors: []  # site scraper not implemented yet; aggregators only
 
   # Russian-language publishers
   - id: bhv
@@ -146,7 +146,7 @@ publishers:
     open_library:
       publishers: ["E-Univers"]
       languages: ["rus"]
-    connectors: ["eunivers_catalog"]
+    connectors: []  # site scraper not implemented yet; aggregators only
   - id: piter
     name: Питер
     aliases: ["Piter"]
@@ -170,7 +170,7 @@ publishers:
     open_library:
       publishers: ["Вильямс", "Williams Publishing"]
       languages: ["rus"]
-    connectors: ["dialektika_catalog", "williams_new"]
+    connectors: []  # site scraper not implemented yet; aggregators only
   - id: eksmo
     name: Эксмо (компьютерная литература)
     aliases: ["Eksmo"]
@@ -182,7 +182,7 @@ publishers:
     open_library:
       publishers: ["Эксмо", "Eksmo"]
       languages: ["rus"]
-    connectors: ["eksmo_it"]
+    connectors: []  # site scraper not implemented yet; aggregators only
   - id: fizmatlit
     name: Физматлит
     languages: [ru]
@@ -193,7 +193,7 @@ publishers:
     open_library:
       publishers: ["Физматлит"]
       languages: ["rus"]
-    connectors: ["fizmatlit_new"]
+    connectors: []  # site scraper not implemented yet; aggregators only
   - id: binom
     name: Бином-Пресс
     aliases: ["БИНОМ"]
@@ -205,7 +205,7 @@ publishers:
     open_library:
       publishers: ["Бином", "Бином-Пресс"]
       languages: ["rus"]
-    connectors: ["binom_new"]
+    connectors: []  # site scraper not implemented yet; aggregators only
   - id: gelios_arv
     name: Гелиос АРВ
     languages: [ru]
@@ -216,7 +216,7 @@ publishers:
     open_library:
       publishers: ["Гелиос АРВ"]
       languages: ["rus"]
-    connectors: ["gelios_catalog"]
+    connectors: []  # site scraper not implemented yet; aggregators only
   - id: nauka_technika
     name: Наука и техника
     languages: [ru]
@@ -239,7 +239,7 @@ publishers:
     open_library:
       publishers: ["АСТ", "AST"]
       languages: ["rus"]
-    connectors: ["ast_it"]
+    connectors: []  # site scraper not implemented yet; aggregators only
   - id: knorus
     name: КНОРУС
     aliases: ["Knorus"]
@@ -251,6 +251,6 @@ publishers:
     open_library:
       publishers: ["КНОРУС", "Knorus"]
       languages: ["rus"]
-    connectors: ["knorus_catalog"]
+    connectors: []  # site scraper not implemented yet; aggregators only
 
 window_days: 90

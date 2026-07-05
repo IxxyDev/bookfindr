@@ -10,6 +10,7 @@ from selectolax.parser import HTMLParser
 from app.core.config import PublisherConfig, get_settings
 from app.services.types import BookRecord
 from app.utils.dates import parse_date
+from app.utils.http import get_with_retries, request_with_retries
 
 logger = logging.getLogger(__name__)
 
@@ -63,8 +64,7 @@ async def _fetch_oreilly_api(
     results: List[BookRecord] = []
     async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
         while True:
-            resp = await client.get(OREILLY_SEARCH_URL, params=params)
-            resp.raise_for_status()
+            resp = await get_with_retries(client, OREILLY_SEARCH_URL, params=params)
             data = resp.json()
             items = data.get("results") or []
             if not items:
@@ -148,8 +148,7 @@ async def fetch_dmk_catalog(publisher: PublisherConfig) -> List[BookRecord]:
     cutoff = date.today() - timedelta(days=settings.window_days)
 
     async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
-        resp = await client.get(DMK_URL)
-        resp.raise_for_status()
+        resp = await get_with_retries(client, DMK_URL)
     html = HTMLParser(resp.text)
     items = html.css(".book-item")
     results: List[BookRecord] = []
@@ -202,8 +201,7 @@ async def fetch_piter_catalog(publisher: PublisherConfig) -> List[BookRecord]:
     async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
         while True:
             params = {"page": page, "per": per, "sort": "created_at_desc"}
-            resp = await client.get(PITER_URL, params=params)
-            resp.raise_for_status()
+            resp = await get_with_retries(client, PITER_URL, params=params)
             data = resp.json()
             if total is None:
                 total = data.get("count", 0)
@@ -324,10 +322,12 @@ async def fetch_bhv_store(publisher: PublisherConfig) -> List[BookRecord]:
     async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
         while True:
             params = {"per_page": per_page, "page": page, "orderby": "date", "order": "desc"}
-            resp = await client.get(base, params=params)
-            if resp.status_code >= 500:
-                break
-            resp.raise_for_status()
+            try:
+                resp = await get_with_retries(client, base, params=params)
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code >= 500:
+                    break
+                raise
             items = resp.json()
             if not items:
                 break
@@ -373,12 +373,13 @@ def _strip_html(text: str) -> str:
     return HTMLParser(text).text() if text else ""
 
 
+ISBN13_IN_TEXT_RE = re.compile(r"97[89][-\s]?[0-9][-\s]?[0-9]{2,}[-\s]?[0-9]{2,}[-\s]?[0-9]")
+
+
 def _find_isbn_in_text(text: str) -> Optional[str]:
     if not text:
         return None
-    import re
-
-    m = re.search(r"97[89][-\\s]?[0-9][-\\s]?[0-9]{2,}[-\\s]?[0-9]{2,}[-\\s]?[0-9]", text)
+    m = ISBN13_IN_TEXT_RE.search(text)
     if m:
         return m.group(0).replace(" ", "").replace("-", "")
     return None
@@ -391,30 +392,37 @@ def _bhv_is_computing(item: dict) -> bool:
     return any(k in text for k in keywords)
 
 
+# ---- Miroma (price-list XLS) ----
+MIROMA_BASE = "https://miromabook.ru"
+
+PRICE_LINK_RE = re.compile(r'href="([^"]+\.(?:xls|xlsx|zip))"', re.I)
+
+
+def _extract_price_links(html_text: str, base: str) -> List[str]:
+    links = PRICE_LINK_RE.findall(html_text)
+    return [link if link.startswith("http") else base + link for link in links]
+
+
 async def fetch_miroma_price(publisher: PublisherConfig) -> List[BookRecord]:
     settings = get_settings()
     timeout = httpx.Timeout(settings.request_timeout, connect=settings.request_timeout)
     headers = {"User-Agent": settings.user_agent}
-    base = "https://miromabook.ru"
-    listing = await httpx.AsyncClient(timeout=timeout, headers=headers).get(
-        f"{base}/prays-listy/"
-    )
-    links = re.findall(r'href=\"([^\"]+\\.(?:xls|xlsx|zip))\"', listing.text, re.I)
     results: List[BookRecord] = []
-    for link in links:
-        url = link if link.startswith("http") else base + link
-        try:
-            resp = await httpx.AsyncClient(timeout=timeout, headers=headers).get(url)
-            resp.raise_for_status()
-            book_list = _parse_miroma_xls(resp.content)
-            for rec in book_list:
-                rec.publisher_id = publisher.id
-                rec.source = "miroma_price"
-                results.append(rec)
-        except Exception:
-            continue
-        if len(results) >= settings.max_results_per_source:
-            break
+    async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
+        listing = await get_with_retries(client, f"{MIROMA_BASE}/prays-listy/")
+        for url in _extract_price_links(listing.text, MIROMA_BASE):
+            try:
+                resp = await get_with_retries(client, url)
+                book_list = _parse_miroma_xls(resp.content)
+                for rec in book_list:
+                    rec.publisher_id = publisher.id
+                    rec.source = "miroma_price"
+                    results.append(rec)
+            except Exception:
+                logger.warning("Failed to fetch/parse Miroma price list %s", url, exc_info=True)
+                continue
+            if len(results) >= settings.max_results_per_source:
+                break
     return results
 
 
@@ -468,205 +476,6 @@ def _parse_miroma_xls(content: bytes) -> List[BookRecord]:
     return records
 
 
-# ---- Dialektika / Williams ----
-async def fetch_dialektika_catalog(publisher: PublisherConfig) -> List[BookRecord]:
-    settings = get_settings()
-    timeout = httpx.Timeout(settings.request_timeout, connect=settings.request_timeout)
-    headers = {"User-Agent": settings.user_agent}
-    urls = ["https://www.dialektika.com/", "https://www.dialektika.com/index_c.html"]
-    results: List[BookRecord] = []
-    for url in urls:
-        try:
-            resp = await httpx.AsyncClient(timeout=timeout, headers=headers).get(url)
-            resp.raise_for_status()
-        except Exception:
-            continue
-        html = HTMLParser(resp.text)
-        for a in html.css("a"):
-            href = a.attributes.get("href", "")
-            title = a.text(strip=True)
-            if not title or len(title) < 4:
-                continue
-            if href.startswith("#") or href.lower().startswith("mailto"):
-                continue
-            if not href.startswith("http"):
-                href = "https://www.dialektika.com/" + href.lstrip("/")
-            results.append(
-                BookRecord(
-                    source="dialektika_html",
-                    source_key=href,
-                    publisher_id=publisher.id,
-                    title=title,
-                    language="ru",
-                    subjects=["computers"],
-                    published_date=date.today(),
-                    info_url=href,
-                    raw={"href": href},
-                )
-            )
-            if len(results) >= settings.max_results_per_source:
-                return results
-    return results
-
-
-async def fetch_williams_new(publisher: PublisherConfig) -> List[BookRecord]:
-    settings = get_settings()
-    timeout = httpx.Timeout(settings.request_timeout, connect=settings.request_timeout)
-    headers = {"User-Agent": settings.user_agent}
-    url = "https://www.williamspublishing.com/indexns.shtml"
-    try:
-        resp = await httpx.AsyncClient(timeout=timeout, headers=headers).get(url)
-        resp.raise_for_status()
-    except Exception:
-        return []
-    html = HTMLParser(resp.text)
-    results: List[BookRecord] = []
-    for a in html.css("a"):
-        href = a.attributes.get("href", "")
-        title = a.text(strip=True)
-        if not title or len(title) < 4:
-            continue
-        if href and not href.startswith("http"):
-            href = "https://www.williamspublishing.com/" + href.lstrip("/")
-        results.append(
-            BookRecord(
-                source="williams_html",
-                source_key=href,
-                publisher_id=publisher.id,
-                title=title,
-                language="ru",
-                subjects=["computers"],
-                published_date=date.today(),
-                info_url=href,
-                raw={"href": href},
-            )
-        )
-        if len(results) >= settings.max_results_per_source:
-            break
-    return results
-
-
-# ---- Eksmo ----
-async def fetch_eksmo_it(publisher: PublisherConfig) -> List[BookRecord]:
-    url = "https://eksmo.ru/professionalnaia-literatura/kompyuternaya-literatura/"
-    settings = get_settings()
-    timeout = httpx.Timeout(settings.request_timeout, connect=settings.request_timeout)
-    headers = {"User-Agent": settings.user_agent}
-    try:
-        resp = await httpx.AsyncClient(timeout=timeout, headers=headers).get(url)
-        resp.raise_for_status()
-    except Exception:
-        return []
-    html = HTMLParser(resp.text)
-    items = html.css(".product-card") or html.css(".product-item") or []
-    results: List[BookRecord] = []
-    for item in items:
-        title_el = item.css_first("a")
-        if not title_el:
-            continue
-        title = title_el.text(strip=True)
-        href = title_el.attributes.get("href", "")
-        if href and not href.startswith("http"):
-            href = "https://eksmo.ru" + href
-        desc = item.css_first(".product-card__desc") or item.css_first(".annotation")
-        results.append(
-            BookRecord(
-                source="eksmo_html",
-                source_key=href,
-                publisher_id=publisher.id,
-                title=title,
-                authors=[],
-                language="ru",
-                subjects=["computers"],
-                description=desc.text(strip=True) if desc else None,
-                published_date=date.today(),
-                info_url=href,
-                raw={"href": href},
-            )
-        )
-        if len(results) >= settings.max_results_per_source:
-            break
-    return results
-
-
-# ---- Fizmatlit ----
-async def fetch_fizmatlit_new(publisher: PublisherConfig) -> List[BookRecord]:
-    url = "https://www.fml.ru/book/novinki"
-    settings = get_settings()
-    timeout = httpx.Timeout(settings.request_timeout, connect=settings.request_timeout)
-    headers = {"User-Agent": settings.user_agent}
-    try:
-        resp = await httpx.AsyncClient(timeout=timeout, headers=headers).get(url)
-        resp.raise_for_status()
-    except Exception:
-        return []
-    html = HTMLParser(resp.text)
-    items = html.css("a") or []
-    results: List[BookRecord] = []
-    for a in items:
-        href = a.attributes.get("href", "")
-        title = a.text(strip=True)
-        if not title or len(title) < 4:
-            continue
-        if href and not href.startswith("http"):
-            href = "https://www.fml.ru" + href
-        results.append(
-            BookRecord(
-                source="fizmatlit_html",
-                source_key=href,
-                publisher_id=publisher.id,
-                title=title,
-                language="ru",
-                subjects=["computers"],
-                published_date=date.today(),
-                info_url=href,
-                raw={"href": href},
-            )
-        )
-        if len(results) >= settings.max_results_per_source:
-            break
-    return results
-
-
-# ---- Gelios ----
-async def fetch_gelios_catalog(publisher: PublisherConfig) -> List[BookRecord]:
-    url = "https://www.gelios-arv.ru/catalog.html"
-    settings = get_settings()
-    timeout = httpx.Timeout(settings.request_timeout, connect=settings.request_timeout)
-    headers = {"User-Agent": settings.user_agent}
-    try:
-        resp = await httpx.AsyncClient(timeout=timeout, headers=headers).get(url)
-        resp.raise_for_status()
-    except Exception:
-        return []
-    html = HTMLParser(resp.text)
-    items = html.css("a") or []
-    results: List[BookRecord] = []
-    for a in items:
-        href = a.attributes.get("href", "")
-        title = a.text(strip=True)
-        if not title or len(title) < 4:
-            continue
-        if href and not href.startswith("http"):
-            href = "https://www.gelios-arv.ru/" + href.lstrip("/")
-        results.append(
-            BookRecord(
-                source="gelios_html",
-                source_key=href,
-                publisher_id=publisher.id,
-                title=title,
-                language="ru",
-                subjects=["computers"],
-                published_date=date.today(),
-                info_url=href,
-                raw={"href": href},
-            )
-        )
-        if len(results) >= settings.max_results_per_source:
-            break
-    return results
-
-
 # ---- NiT (Insales JSON) ----
 async def fetch_nit_catalog(publisher: PublisherConfig) -> List[BookRecord]:
     settings = get_settings()
@@ -679,8 +488,9 @@ async def fetch_nit_catalog(publisher: PublisherConfig) -> List[BookRecord]:
     cutoff = date.today() - timedelta(days=settings.window_days)
     async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
         while True:
-            resp = await client.get(base, params={"page": page, "per": per})
-            if resp.status_code != 200:
+            try:
+                resp = await get_with_retries(client, base, params={"page": page, "per": per})
+            except httpx.HTTPStatusError:
                 break
             data = resp.json()
             products = data.get("products") or []
@@ -714,249 +524,6 @@ async def fetch_nit_catalog(publisher: PublisherConfig) -> List[BookRecord]:
     return results
 
 
-# ---- AST ----
-async def fetch_ast_it(publisher: PublisherConfig) -> List[BookRecord]:
-    url = "https://ast.ru/cat/nauchno-populyarnaya-literatura/informatsionnye-tekhnologii/"
-    settings = get_settings()
-    timeout = httpx.Timeout(settings.request_timeout, connect=settings.request_timeout)
-    headers = {"User-Agent": settings.user_agent}
-    try:
-        resp = await httpx.AsyncClient(timeout=timeout, headers=headers).get(url)
-        resp.raise_for_status()
-    except Exception:
-        return []
-    html = HTMLParser(resp.text)
-    items = html.css("a") or []
-    results: List[BookRecord] = []
-    for a in items:
-        href = a.attributes.get("href", "")
-        title = a.text(strip=True)
-        if not title or len(title) < 4:
-            continue
-        if href and not href.startswith("http"):
-            href = "https://ast.ru" + href
-        results.append(
-            BookRecord(
-                source="ast_html",
-                source_key=href,
-                publisher_id=publisher.id,
-                title=title,
-                language="ru",
-                subjects=["computers"],
-                published_date=date.today(),
-                info_url=href,
-                raw={"href": href},
-            )
-        )
-        if len(results) >= settings.max_results_per_source:
-            break
-    return results
-
-
-# ---- Knorus ----
-async def fetch_knorus_catalog(publisher: PublisherConfig) -> List[BookRecord]:
-    url = "https://www.knorus.ru/catalog/"
-    settings = get_settings()
-    timeout = httpx.Timeout(settings.request_timeout, connect=settings.request_timeout)
-    headers = {"User-Agent": settings.user_agent}
-    try:
-        resp = await httpx.AsyncClient(timeout=timeout, headers=headers).get(url)
-        resp.raise_for_status()
-    except Exception:
-        return []
-    html = HTMLParser(resp.text)
-    items = html.css("a") or []
-    results: List[BookRecord] = []
-    for a in items:
-        href = a.attributes.get("href", "")
-        title = a.text(strip=True)
-        if not title or len(title) < 4:
-            continue
-        if href and not href.startswith("http"):
-            href = "https://www.knorus.ru" + href
-        results.append(
-            BookRecord(
-                source="knorus_html",
-                source_key=href,
-                publisher_id=publisher.id,
-                title=title,
-                language="ru",
-                subjects=["computers"],
-                published_date=date.today(),
-                info_url=href,
-                raw={"href": href},
-            )
-        )
-        if len(results) >= settings.max_results_per_source:
-            break
-    return results
-
-
-# ---- E-Univers ----
-async def fetch_eunivers_catalog(publisher: PublisherConfig) -> List[BookRecord]:
-    url = "https://e-univers.ru/catalog/"
-    settings = get_settings()
-    timeout = httpx.Timeout(settings.request_timeout, connect=settings.request_timeout)
-    headers = {"User-Agent": settings.user_agent}
-    try:
-        resp = await httpx.AsyncClient(timeout=timeout, headers=headers).get(url)
-        resp.raise_for_status()
-    except Exception:
-        return []
-    html = HTMLParser(resp.text)
-    items = html.css("a") or []
-    results: List[BookRecord] = []
-    for a in items:
-        href = a.attributes.get("href", "")
-        title = a.text(strip=True)
-        if not title or len(title) < 4:
-            continue
-        if href and not href.startswith("http"):
-            href = "https://e-univers.ru" + href
-        results.append(
-            BookRecord(
-                source="eunivers_html",
-                source_key=href,
-                publisher_id=publisher.id,
-                title=title,
-                language="ru",
-                subjects=["computers"],
-                published_date=date.today(),
-                info_url=href,
-                raw={"href": href},
-            )
-        )
-        if len(results) >= settings.max_results_per_source:
-            break
-    return results
-
-
-# ---- Apress ----
-async def fetch_apress_new(publisher: PublisherConfig) -> List[BookRecord]:
-    urls = [
-        "https://www.apress.com/gp/services/new-releases",
-        "https://www.apress.com/gp/programming",
-    ]
-    settings = get_settings()
-    timeout = httpx.Timeout(settings.request_timeout, connect=settings.request_timeout)
-    headers = {"User-Agent": settings.user_agent}
-    results: List[BookRecord] = []
-    for url in urls:
-        try:
-            resp = await httpx.AsyncClient(timeout=timeout, headers=headers).get(url)
-            resp.raise_for_status()
-        except Exception:
-            continue
-        html = HTMLParser(resp.text)
-        for a in html.css("a"):
-            href = a.attributes.get("href", "")
-            title = a.text(strip=True)
-            if not title or len(title) < 4:
-                continue
-            if "/gp/book/" not in href and "/book/" not in href:
-                continue
-            if not href.startswith("http"):
-                href = "https://www.apress.com" + href
-            results.append(
-                BookRecord(
-                    source="apress_html",
-                    source_key=href,
-                    publisher_id=publisher.id,
-                    title=title,
-                    language="en",
-                    subjects=["computers"],
-                    published_date=date.today(),
-                    info_url=href,
-                    raw={"href": href},
-                )
-            )
-            if len(results) >= settings.max_results_per_source:
-                return results
-    return results
-
-
-# ---- No Starch ----
-async def fetch_nostarch_new(publisher: PublisherConfig) -> List[BookRecord]:
-    url = "https://nostarch.com/"
-    settings = get_settings()
-    timeout = httpx.Timeout(settings.request_timeout, connect=settings.request_timeout)
-    headers = {"User-Agent": settings.user_agent}
-    try:
-        resp = await httpx.AsyncClient(timeout=timeout, headers=headers).get(url)
-        resp.raise_for_status()
-    except Exception:
-        return []
-    html = HTMLParser(resp.text)
-    results: List[BookRecord] = []
-    for a in html.css("a"):
-        href = a.attributes.get("href", "")
-        title = a.text(strip=True)
-        if not title or len(title) < 3:
-            continue
-        if not href.startswith("http"):
-            href = "https://nostarch.com" + href
-        results.append(
-            BookRecord(
-                source="nostarch_html",
-                source_key=href,
-                publisher_id=publisher.id,
-                title=title,
-                language="en",
-                subjects=["computers"],
-                published_date=date.today(),
-                info_url=href,
-                raw={"href": href},
-            )
-        )
-        if len(results) >= settings.max_results_per_source:
-            break
-    return results
-
-
-# ---- InformIT ----
-async def fetch_informit_new(publisher: PublisherConfig) -> List[BookRecord]:
-    url = "https://www.informit.com/"
-    settings = get_settings()
-    timeout = httpx.Timeout(settings.request_timeout, connect=settings.request_timeout)
-    headers = {"User-Agent": settings.user_agent}
-    try:
-        resp = await httpx.AsyncClient(timeout=timeout, headers=headers).get(url)
-        resp.raise_for_status()
-    except Exception:
-        return []
-    html = HTMLParser(resp.text)
-    results: List[BookRecord] = []
-    for a in html.css("a"):
-        href = a.attributes.get("href", "")
-        title = a.text(strip=True)
-        if not title or len(title) < 4:
-            continue
-        if not href.startswith("http"):
-            href = "https://www.informit.com/" + href.lstrip("/")
-        results.append(
-            BookRecord(
-                source="informit_html",
-                source_key=href,
-                publisher_id=publisher.id,
-                title=title,
-                language="en",
-                subjects=["computers"],
-                published_date=date.today(),
-                info_url=href,
-                raw={"href": href},
-            )
-        )
-        if len(results) >= settings.max_results_per_source:
-            break
-    return results
-
-
-# ---- Binom (placeholder) ----
-async def fetch_binom_new(publisher: PublisherConfig) -> List[BookRecord]:
-    # Redirects to prosv.ru; requires separate integration. Return empty for now.
-    return []
-
-
 def _find_col(headers: List[str], keys: List[str]) -> Optional[int]:
     for idx, h in enumerate(headers):
         for key in keys:
@@ -970,12 +537,16 @@ PACKT_SEARCH_URL = (
     "q=&product-type=book&sort=publication-newest"
 )
 
+PACKT_ORDINAL_RE = re.compile(r"(\d+)(st|nd|rd|th)", re.IGNORECASE)
+PACKT_PAGES_RE = re.compile(r"(\d{2,4})\s+pages")
+PACKT_ISBN_RE = re.compile(r"97[89]\d{10}")
+
 
 def _parse_packt_date(value: str) -> Optional[date]:
     if not value:
         return None
     cleaned = value.replace(",", "")
-    cleaned = re.sub(r"(\\d+)(st|nd|rd|th)", r"\\1", cleaned, flags=re.IGNORECASE)
+    cleaned = PACKT_ORDINAL_RE.sub(r"\1", cleaned)
     for fmt in ["%b %d %Y", "%B %d %Y", "%b %Y", "%B %Y"]:
         try:
             return datetime.strptime(cleaned, fmt).date()
@@ -985,7 +556,7 @@ def _parse_packt_date(value: str) -> Optional[date]:
 
 
 def _packt_pages(text: str) -> Optional[int]:
-    m = re.search(r"(\\d{2,4})\\s+pages", text.lower())
+    m = PACKT_PAGES_RE.search(text.lower())
     if m:
         try:
             return int(m.group(1))
@@ -1009,7 +580,7 @@ def _packt_isbn(card) -> Optional[str]:
                 values.append(val)
     if values:
         joined = " ".join(values)
-        m = re.search(r"97[89]\\d{10}", joined)
+        m = PACKT_ISBN_RE.search(joined)
         if m:
             return m.group(0)
     return None
@@ -1051,8 +622,7 @@ async def fetch_packt_search(publisher: PublisherConfig) -> List[BookRecord]:
     cutoff = date.today() - timedelta(days=settings.window_days)
 
     async with httpx.AsyncClient(timeout=timeout, headers=headers, follow_redirects=True) as client:
-        resp = await client.get(PACKT_SEARCH_URL)
-        resp.raise_for_status()
+        resp = await get_with_retries(client, PACKT_SEARCH_URL)
     html = HTMLParser(resp.text)
     cards = html.css(".product-card-v2") or []
     results: List[BookRecord] = []
@@ -1103,6 +673,8 @@ async def fetch_packt_search(publisher: PublisherConfig) -> List[BookRecord]:
 
 MANNING_CATALOG_URL = "https://www.manning.com/search/getCatalogData"
 
+WHITESPACE_RE = re.compile(r"\s+")
+
 
 def _manning_cover_url(obj: dict) -> Optional[str]:
     image = obj.get("imageUrl")
@@ -1118,7 +690,7 @@ def _manning_authors(authorship: Optional[str]) -> List[str]:
     if not authorship:
         return []
     clean = HTMLParser(authorship).text(separator=" ")
-    clean = re.sub(r"\\s+", " ", clean).strip()
+    clean = WHITESPACE_RE.sub(" ", clean).strip()
     if not clean:
         return []
     parts = re.split(r",| and | with ", clean, flags=re.IGNORECASE)
@@ -1157,8 +729,7 @@ async def fetch_manning_catalog(publisher: PublisherConfig) -> List[BookRecord]:
     async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
         while True:
             payload["page"] = page
-            resp = await client.post(MANNING_CATALOG_URL, json=payload)
-            resp.raise_for_status()
+            resp = await request_with_retries(client, "POST", MANNING_CATALOG_URL, json=payload)
             data = resp.json()
             products = data.get("products") or []
             page_dates: List[date] = []
@@ -1200,28 +771,20 @@ async def fetch_manning_catalog(publisher: PublisherConfig) -> List[BookRecord]:
     return results
 
 
+# Naive HTML scrapers for dialektika/williams/eksmo/fizmatlit/gelios/ast/knorus/
+# eunivers/apress/nostarch/informit/binom were removed: they collected every <a>
+# on the page as a "book" with published_date=today. Re-add per-site connectors
+# here once proper selectors are written and tested against saved fixtures.
 CONNECTOR_MAP: Dict[str, Callable[[PublisherConfig], Awaitable[List[BookRecord]]]] = {
     "oreilly_new_upcoming": fetch_oreilly_new_upcoming,
     "dmk_catalog": fetch_dmk_catalog,
     "piter_catalog": fetch_piter_catalog,
     "bhv_store": fetch_bhv_store,
     "miroma_price": fetch_miroma_price,
-    "dialektika_catalog": fetch_dialektika_catalog,
-    "williams_new": fetch_williams_new,
-    "eksmo_it": fetch_eksmo_it,
-    "fizmatlit_new": fetch_fizmatlit_new,
-    "binom_new": fetch_binom_new,
-    "gelios_catalog": fetch_gelios_catalog,
     "nit_catalog": fetch_nit_catalog,
-    "ast_it": fetch_ast_it,
-    "knorus_catalog": fetch_knorus_catalog,
-    "eunivers_catalog": fetch_eunivers_catalog,
     "addison_wesley_api": fetch_addison_wesley,
     "pearson_api": fetch_pearson,
     "wrox_api": fetch_wrox,
     "packt_search": fetch_packt_search,
     "manning_catalog": fetch_manning_catalog,
-    "apress_new": fetch_apress_new,
-    "nostarch_new": fetch_nostarch_new,
-    "informit_new": fetch_informit_new,
 }
