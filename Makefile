@@ -7,22 +7,22 @@ install:
 	$(PY) sync
 
 dev:
-	$(PY) run uvicorn $(APP) --reload
+	$(PY) run python -m uvicorn $(APP) --reload
 
 run: dev
 
 serve:
-	$(PY) run uvicorn $(APP) --host 0.0.0.0 --port 8000
+	$(PY) run python -m uvicorn $(APP) --host 0.0.0.0 --port 8000
 
 lint:
-	$(PY) run ruff check app
+	$(PY) run ruff check app tests
 
 fmt:
-	$(PY) run ruff check --select I --fix app
-	$(PY) run ruff format app
+	$(PY) run ruff check --select I --fix app tests
+	$(PY) run ruff format app tests
 
 test:
-	$(PY) run pytest
+	$(PY) run python -m pytest
 
 sync:
 	$(PY) run python -m app.services.sync

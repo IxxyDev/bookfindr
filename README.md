@@ -90,13 +90,14 @@ Dedup rules:
 3. Deduplicate using rules above; upsert `books`; insert/update `book_sources`; log `fetch_runs`.
 4. Drop items older than window_days from the run (do not delete existing rows).
 
-## API sketch (FastAPI)
+## API (FastAPI)
 - GET /health
-- POST /sync/run (body: publisher_id? sources? dry_run?) — manual kick. Default sources now: `["connectors"]` (агрегаторы отключены по умолчанию).
+- POST /sync/run (body: publisher_id? sources? dry_run?) — запускает синк в фоне, отвечает 202 сразу; 409 если синк уже идёт. Default sources: `["connectors"]` (агрегаторы отключены по умолчанию).
+- GET /sync/status — `{running, last_runs}` по журналу fetch_runs.
 - GET /publishers — list with config metadata.
-- GET /books — filters: publisher_id, language, subject/topic, date_from, date_to, q (FTS), page/limit; sorted by published_date desc.
-- GET /books/{book_id} — detail plus per-source payloads (optional include_raw flag).
-- GET /stats — counts per publisher/source, last sync timestamps.
+- GET /books — filters: publisher_id, language, subject/topic, date_from, date_to, q (FTS), limit/offset; sorted by published_date desc; total в заголовке X-Total-Count.
+- GET /books/{book_id} — detail plus per-source payloads.
+- GET /stats — counts per publisher/source, последние fetch_runs.
 
 ## UI concept (HTMX or minimal React)
 - Page with filters (publisher multiselect, language, subject, date range) + search box.
@@ -134,7 +135,7 @@ uv sync
 ```
 3) Run API/UI locally:
 ```bash
-uv run uvicorn app.main:app --reload
+make dev  # uv run python -m uvicorn app.main:app --reload
 ```
 4) Trigger a manual sync (runs Google Books + Open Library for all publishers):
 ```bash
@@ -142,11 +143,14 @@ uv run python -m app.services.sync
 ```
 
 ## Current state
-- FastAPI app with `/books`, `/publishers`, `/sync/run`, `/health` plus a small HTML UI at `/`.
-- SQLite schema via SQLAlchemy; dedup by ISBN-13/10 then normalized hash. Raw payloads saved to `book_sources`.
-- APScheduler daily job at 03:00 server time (can be changed in `app/main.py`).
-- Sources: Google Books + Open Library implemented; custom connectors are stubbed (log-only).
-- Search uses simple `LIKE` over title/description; FTS table exists but not yet wired to queries.
+- FastAPI app with `/books`, `/publishers`, `/sync/run`, `/sync/status`, `/stats`, `/health` plus a small HTML UI at `/`.
+- SQLite schema via SQLAlchemy; dedup by ISBN-13/10 then normalized hash. Raw payloads saved to `book_sources`. Конфликты уникальных ISBN при апсерте не роняют синк (savepoint на запись).
+- Поиск идёт через SQLite FTS5 (bm25) с фолбэком на LIKE.
+- Синк выполняется в фоне под глобальным локом (ручной запуск и cron не пересекаются); APScheduler daily job at 03:00 server time (can be changed in `app/main.py`).
+- HTTP: таймауты + ретраи с экспоненциальным бэкоффом и уважением Retry-After для 429/5xx; пагинация агрегаторов останавливается, как только страница выходит за window_days.
+- Sources: Google Books + Open Library + рабочие коннекторы: O'Reilly API (+ Addison-Wesley/Pearson/Wrox через него), Packt, Manning, БХВ, Питер, ДМК, НиТ, Miroma (прайс-XLS).
+- Издательства без рабочего коннектора (Диалектика, Эксмо, Физматлит, АСТ, КНОРУС, Гелиос, E-Univers, Бином, No Starch, Apress, Sams) собираются только через агрегаторы; наивные скрейперы «все ссылки со страницы» удалены — новые коннекторы добавляются в `CONNECTOR_MAP` с тестами на сохранённых фикстурах.
+- Книги с датой публикации в будущем сознательно не сохраняются: том появится в базе после выхода (окно window_days). Если понадобятся «upcoming» — убрать `purge_future_books` и фильтр в `_filter_recent_records`.
 
 ## Configuration
 - Publishers live in `publishers.yml`; edit/add entries and restart the app. On startup sync inserts/updates publishers table.
@@ -158,4 +162,6 @@ uv run python -m app.services.sync
 - `GET /publishers`
 - `GET /books?publisher_id=packt&language=en&subject=python&q=ml&date_from=2024-01-01`
 - `GET /books/{book_id}`
-- `POST /sync/run` body: `{"publisher_id":"packt","sources":["google_books","open_library"],"dry_run":false}`
+- `POST /sync/run` body: `{"publisher_id":"packt","sources":["google_books","open_library"],"dry_run":false}` → 202, синк идёт в фоне
+- `GET /sync/status` — running + последние 20 fetch_runs
+- `GET /stats` — total_books, разбивка по издательствам/источникам, последние fetch_runs
