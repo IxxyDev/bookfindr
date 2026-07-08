@@ -4,6 +4,7 @@ from datetime import date, datetime, timezone
 from typing import Iterable, Optional, Tuple
 from uuid import uuid4
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.book import Book
@@ -87,46 +88,66 @@ async def attach_source(repo: BookRepository, book_id: str, record: BookRecord) 
     await repo.add_source(source)
 
 
+async def _upsert_one(
+    session: AsyncSession, repo: BookRepository, record: BookRecord
+) -> Optional[str]:
+    """Upsert a single record inside a savepoint; returns 'new', 'updated' or None."""
+    async with session.begin_nested():
+        existing = await find_existing_book(repo, record, dedupe_key=record.dedupe_key)
+        if existing:
+            merged, changed = merge_book(existing, record)
+            if changed:
+                merged.dedupe_key = record.dedupe_key
+            await attach_source(repo, merged.id, record)
+            return "updated" if changed else None
+        book_id = str(uuid4())
+        book = Book(
+            id=book_id,
+            title=record.title,
+            subtitle=record.subtitle,
+            authors=record.authors or [],
+            publisher_id=record.publisher_id,
+            language=record.language,
+            subjects=record.subjects or [],
+            topics=record.topics or [],
+            description=record.description,
+            isbn_10=record.isbn_10,
+            isbn_13=record.isbn_13,
+            dedupe_key=record.dedupe_key,
+            page_count=record.page_count,
+            print_type=record.print_type,
+            published_date=record.published_date,
+            cover_url=record.cover_url,
+            info_url=record.info_url,
+            source_primary=record.source,
+            source_keys={record.source: record.source_key},
+        )
+        await repo.add_book(book)
+        await attach_source(repo, book_id, record)
+        return "new"
+
+
 async def upsert_records(session: AsyncSession, records: Iterable[BookRecord]) -> tuple[int, int]:
     repo = BookRepository(session)
     new_count = 0
     updated_count = 0
     for record in records:
-        dedupe_key = build_dedupe_key(record)
-        record.dedupe_key = dedupe_key
-        existing = await find_existing_book(repo, record, dedupe_key=dedupe_key)
-        if existing:
-            merged, changed = merge_book(existing, record)
-            if changed:
-                merged.dedupe_key = record.dedupe_key
-                updated_count += 1
-            await attach_source(repo, merged.id, record)
-        else:
-            book_id = str(uuid4())
-            book = Book(
-                id=book_id,
-                title=record.title,
-                subtitle=record.subtitle,
-                authors=record.authors or [],
-                publisher_id=record.publisher_id,
-                language=record.language,
-                subjects=record.subjects or [],
-                topics=record.topics or [],
-                description=record.description,
-                isbn_10=record.isbn_10,
-                isbn_13=record.isbn_13,
-                dedupe_key=record.dedupe_key,
-                page_count=record.page_count,
-                print_type=record.print_type,
-                published_date=record.published_date,
-                cover_url=record.cover_url,
-                info_url=record.info_url,
-                source_primary=record.source,
-                source_keys={record.source: record.source_key},
+        record.dedupe_key = build_dedupe_key(record)
+        try:
+            outcome = await _upsert_one(session, repo, record)
+        except IntegrityError:
+            # e.g. record matched book A by dedupe_key while its ISBN belongs to book B
+            logger.warning(
+                "Skipping conflicting record %r (source=%s, isbn13=%s)",
+                record.title,
+                record.source,
+                record.isbn_13,
             )
-            await repo.add_book(book)
-            await attach_source(repo, book_id, record)
+            continue
+        if outcome == "new":
             new_count += 1
+        elif outcome == "updated":
+            updated_count += 1
     return new_count, updated_count
 
 

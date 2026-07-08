@@ -113,50 +113,12 @@ class BookRepository:
         return books, total
 
     async def list(self, filters: BookFilters, limit: int, offset: int) -> list[Book]:
-        stmt: Select[Book] = select(Book)
-        conditions = self._build_conditions(filters)
-        if filters.query:
-            try:
-                fts_ids = await self._fts_search(filters.query, limit + offset)
-                if fts_ids:
-                    conditions.append(Book.id.in_(fts_ids))
-                else:
-                    return []
-            except OperationalError:
-                logger.warning("FTS5 search failed, falling back to LIKE", exc_info=True)
-                pattern = f"%{filters.query}%"
-                conditions.append(
-                    or_(Book.title.ilike(pattern), Book.description.ilike(pattern))
-                )
-        if conditions:
-            stmt = stmt.where(and_(*conditions))
-        stmt = (
-            stmt.order_by(Book.published_date.desc(), Book.created_at.desc())
-            .limit(limit)
-            .offset(offset)
-        )
-        return (await self._session.scalars(stmt)).all()
+        books, _ = await self.list_with_count(filters, limit, offset)
+        return books
 
     async def count(self, filters: BookFilters) -> int:
-        stmt = select(func.count()).select_from(Book)
-        conditions = self._build_conditions(filters)
-        if filters.query:
-            try:
-                fts_ids = await self._fts_search(filters.query, 10000)
-                if fts_ids:
-                    conditions.append(Book.id.in_(fts_ids))
-                else:
-                    return 0
-            except OperationalError:
-                logger.warning("FTS5 count failed, falling back to LIKE", exc_info=True)
-                pattern = f"%{filters.query}%"
-                conditions.append(
-                    or_(Book.title.ilike(pattern), Book.description.ilike(pattern))
-                )
-        if conditions:
-            stmt = stmt.where(and_(*conditions))
-        result = await self._session.scalar(stmt)
-        return result or 0
+        _, total = await self.list_with_count(filters, limit=1, offset=0)
+        return total
 
     async def get(self, book_id: str) -> Optional[Book]:
         return await self._session.get(Book, book_id)
