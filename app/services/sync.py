@@ -78,7 +78,9 @@ async def run_sync(
             records = _filter_recent_records(records, config.window_days)
 
             if not dry_run:
-                today = datetime.now(timezone.utc).date()
+                # Same local clock as connectors/_filter_recent_records: a UTC date
+                # here would purge books scraped "today" local time as future-dated
+                today = date.today()
                 new_count, updated_count = await upsert_records(session, records)
                 cutoff = today - timedelta(days=config.window_days)
                 await purge_outdated_books(session, cutoff)
