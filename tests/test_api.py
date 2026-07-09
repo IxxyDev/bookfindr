@@ -102,3 +102,9 @@ async def test_sync_status_idle(client):
     data = res.json()
     assert data["running"] is False
     assert data["last_runs"] == []
+
+
+async def test_root_page_renders(client):
+    res = await client.get("/")
+    assert res.status_code == 200
+    assert "Bookfindr" in res.text

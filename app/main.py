@@ -1,6 +1,7 @@
 import logging
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI, Request
@@ -21,7 +22,8 @@ loglevel = os.getenv("LOGLEVEL", "INFO").upper()
 logging.basicConfig(level=getattr(logging, loglevel, logging.INFO))
 logger = logging.getLogger(__name__)
 
-templates = Jinja2Templates(directory="app/templates")
+BASE_DIR = Path(__file__).resolve().parent
+templates = Jinja2Templates(directory=BASE_DIR / "templates")
 scheduler = AsyncIOScheduler()
 
 
@@ -59,16 +61,14 @@ app.include_router(books_router)
 app.include_router(sync_router)
 app.include_router(stats_router)
 
-app.mount("/static", StaticFiles(directory="app/static"), name="static")
+app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
     settings = get_settings()
     return templates.TemplateResponse(
+        request,
         "index.html",
-        {
-            "request": request,
-            "window_days": settings.window_days,
-        },
+        {"window_days": settings.window_days},
     )
