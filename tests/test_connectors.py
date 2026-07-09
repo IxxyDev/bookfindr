@@ -8,6 +8,7 @@ from app.clients.connectors import (
     _manning_authors,
     _packt_isbn,
     _packt_pages,
+    _parse_dmk_page,
     _parse_packt_date,
 )
 
@@ -63,6 +64,59 @@ def test_manning_authors_html_and_separators():
     assert _manning_authors("Alice Smith, Bob Jones") == ["Alice Smith", "Bob Jones"]
     assert _manning_authors(None) == []
     assert _manning_authors("") == []
+
+
+# Trimmed real markup from dmkpress.com/catalog/computer/
+DMK_SAMPLE = """
+<div class="cell">
+  <div class="book-card" data-product data-product-id="13974">
+    <a class="book-card__pic" href="/catalog/computer/978-5-93700-473-4/">
+      <picture><img src="/upload/resize_cache/iblock/50e/cover.jpg"
+        alt="Увлекательная геометрия"/></picture>
+      <div class="book-card__novel">Новинка</div>
+    </a>
+    <div class="book-card__main">
+      <a class="book-card__title"
+        href="/catalog/computer/978-5-93700-473-4/">Увлекательная геометрия</a>
+      <div class="book-card__autor"><a href="/author/7420/">Златопольский Д.</a></div>
+    </div>
+  </div>
+</div>
+<div class="cell">
+  <div class="book-card" data-product data-product-id="13975">
+    <a class="book-card__pic" href="/catalog/computer/978-5-93700-001-9/">
+      <picture><img src="https://cdn.example.com/old.jpg" alt="Старая книга"/></picture>
+    </a>
+    <div class="book-card__main">
+      <a class="book-card__title" href="/catalog/computer/978-5-93700-001-9/">Старая книга</a>
+      <div class="book-card__autor"><a href="/author/1/">Автор А.</a><a
+        href="/author/2/">Автор Б.</a></div>
+    </div>
+  </div>
+</div>
+"""
+
+
+def test_parse_dmk_page():
+    cards = _parse_dmk_page(DMK_SAMPLE)
+    assert len(cards) == 2
+
+    new = cards[0]
+    assert new["title"] == "Увлекательная геометрия"
+    assert new["is_new"] is True
+    assert new["isbn_13"] == "9785937004734"
+    assert new["info_url"] == "https://www.dmkpress.com/catalog/computer/978-5-93700-473-4/"
+    assert new["cover_url"] == "https://www.dmkpress.com/upload/resize_cache/iblock/50e/cover.jpg"
+    assert new["authors"] == ["Златопольский Д."]
+
+    old = cards[1]
+    assert old["is_new"] is False
+    assert old["cover_url"] == "https://cdn.example.com/old.jpg"
+    assert old["authors"] == ["Автор А.", "Автор Б."]
+
+
+def test_parse_dmk_page_empty():
+    assert _parse_dmk_page("<html><body>nothing here</body></html>") == []
 
 
 def test_extract_price_links():

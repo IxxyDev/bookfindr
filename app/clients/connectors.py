@@ -137,49 +137,80 @@ async def fetch_wrox(publisher: PublisherConfig) -> List[BookRecord]:
     return await _fetch_oreilly_api(publisher, publishers_filter="Wrox Press")
 
 
-# ---- DMK Press catalog (HTML) ----
-DMK_URL = "https://dmkpress.com/catalog/"
+# ---- DMK Press computer-literature catalog (Bitrix HTML) ----
+DMK_BASE = "https://www.dmkpress.com"
+DMK_COMPUTER_URL = DMK_BASE + "/catalog/computer/"
+DMK_MAX_PAGES = 5
+DMK_ISBN_RE = re.compile(r"97[89][-0-9]{10,14}")
+
+
+def _parse_dmk_page(html_text: str) -> List[dict]:
+    html = HTMLParser(html_text)
+    cards = []
+    for card in html.css(".book-card"):
+        title_el = card.css_first("a.book-card__title")
+        if not title_el:
+            continue
+        href = title_el.attributes.get("href") or ""
+        info_url = href if href.startswith("http") else DMK_BASE + href
+        m = DMK_ISBN_RE.search(href)
+        isbn_13 = m.group(0).replace("-", "") if m else None
+        cover_el = card.css_first(".book-card__pic img")
+        cover_url = cover_el.attributes.get("src") if cover_el else None
+        if cover_url and cover_url.startswith("/"):
+            cover_url = DMK_BASE + cover_url
+        cards.append(
+            {
+                "title": title_el.text(strip=True),
+                "authors": [a.text(strip=True) for a in card.css(".book-card__autor a")],
+                "info_url": info_url,
+                "isbn_13": isbn_13,
+                "cover_url": cover_url,
+                "is_new": card.css_first(".book-card__novel") is not None,
+            }
+        )
+    return cards
 
 
 async def fetch_dmk_catalog(publisher: PublisherConfig) -> List[BookRecord]:
     settings = get_settings()
     timeout = httpx.Timeout(settings.request_timeout, connect=settings.request_timeout)
     headers = {"User-Agent": settings.user_agent}
-    cutoff = date.today() - timedelta(days=settings.window_days)
-
-    async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
-        resp = await get_with_retries(client, DMK_URL)
-    html = HTMLParser(resp.text)
-    items = html.css(".book-item")
     results: List[BookRecord] = []
-    for item in items:
-        title_el = item.css_first(".book-title a")
-        info_url = None
-        if title_el and title_el.attributes.get("href"):
-            info_url = "https://dmkpress.com" + title_el.attributes["href"]
-        authors = [a.text(strip=True) for a in item.css(".book-authors a")]
-        date_el = item.css_first(".book-date")
-        published = parse_date(date_el.text(strip=True) if date_el else None)
-        if published and published < cutoff:
-            continue
-        cover_el = item.css_first("img")
-        cover_url = cover_el.attributes.get("src") if cover_el else None
-        results.append(
-            BookRecord(
-                source="dmk_html",
-                source_key=info_url,
-                publisher_id=publisher.id,
-                title=title_el.text(strip=True) if title_el else "Untitled",
-                authors=authors,
-                language="ru",
-                subjects=["computers"],
-                description=None,
-                published_date=published,
-                cover_url=cover_url,
-                info_url=info_url,
-                raw={"html": item.html},
-            )
-        )
+
+    async with httpx.AsyncClient(
+        timeout=timeout, headers=headers, follow_redirects=True
+    ) as client:
+        for page in range(1, DMK_MAX_PAGES + 1):
+            params = {"PAGEN_1": page} if page > 1 else None
+            resp = await get_with_retries(client, DMK_COMPUTER_URL, params=params)
+            cards = _parse_dmk_page(resp.text)
+            if not cards:
+                break
+            new_cards = [c for c in cards if c["is_new"]]
+            for c in new_cards:
+                results.append(
+                    BookRecord(
+                        source="dmk_html",
+                        source_key=c["isbn_13"] or c["info_url"],
+                        publisher_id=publisher.id,
+                        title=c["title"],
+                        authors=c["authors"],
+                        language="ru",
+                        subjects=["computers"],
+                        isbn_13=c["isbn_13"],
+                        # cards carry no publish date; record first sighting
+                        published_date=date.today(),
+                        cover_url=c["cover_url"],
+                        info_url=c["info_url"],
+                        raw={"href": c["info_url"]},
+                    )
+                )
+                if len(results) >= settings.max_results_per_source:
+                    return results
+            if not new_cards:
+                # "Новинка" badges are gone: older pages only from here on
+                break
     return results
 
 
@@ -329,7 +360,8 @@ async def fetch_bhv_store(publisher: PublisherConfig) -> List[BookRecord]:
                     break
                 raise
             items = resp.json()
-            if not items:
+            if not isinstance(items, list) or not items:
+                # WooCommerce returns an error object instead of a list on failure
                 break
             for item in items:
                 published = parse_date(item.get("date_created")) or date.today()
@@ -339,7 +371,12 @@ async def fetch_bhv_store(publisher: PublisherConfig) -> List[BookRecord]:
                     continue
                 desc = item.get("short_description") or item.get("description") or ""
                 images = item.get("images") or []
-                cover_url = images[0].get("src") if images else None
+                if isinstance(images, dict):
+                    # the store API sometimes keys images by id instead of a list
+                    images = list(images.values())
+                cover_url = None
+                if images and isinstance(images[0], dict):
+                    cover_url = images[0].get("src")
                 record = BookRecord(
                     source="bhv_store",
                     source_key=str(item.get("id")),
@@ -615,10 +652,17 @@ def _packt_published(card) -> Optional[date]:
     return None
 
 
+BROWSER_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+)
+
+
 async def fetch_packt_search(publisher: PublisherConfig) -> List[BookRecord]:
     settings = get_settings()
     timeout = httpx.Timeout(settings.request_timeout, connect=settings.request_timeout)
-    headers = {"User-Agent": settings.user_agent}
+    # Packt returns 403 for non-browser user agents
+    headers = {"User-Agent": BROWSER_USER_AGENT, "Accept-Language": "en"}
     cutoff = date.today() - timedelta(days=settings.window_days)
 
     async with httpx.AsyncClient(timeout=timeout, headers=headers, follow_redirects=True) as client:
