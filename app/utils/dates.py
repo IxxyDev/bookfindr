@@ -1,8 +1,7 @@
 from datetime import date, datetime
-from typing import Optional
 
 
-def parse_date(value: str | None) -> Optional[date]:
+def parse_date(value: str | None) -> date | None:
     if not value:
         return None
     # ISO-like year/month/day

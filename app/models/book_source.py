@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import Optional
 
 from sqlalchemy import JSON, DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
@@ -12,6 +11,6 @@ class BookSource(Base):
 
     book_id: Mapped[str] = mapped_column(ForeignKey("books.id"), nullable=False, index=True)
     source: Mapped[str] = mapped_column(String(50), nullable=False)
-    source_key: Mapped[Optional[str]] = mapped_column(String(255))
-    raw: Mapped[Optional[dict]] = mapped_column(JSON)
-    fetched_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    source_key: Mapped[str | None] = mapped_column(String(255))
+    raw: Mapped[dict | None] = mapped_column(JSON)
+    fetched_at: Mapped[datetime | None] = mapped_column(DateTime)

@@ -1,29 +1,29 @@
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 @dataclass
 class BookRecord:
     source: str
-    source_key: Optional[str]
+    source_key: str | None
     publisher_id: str
     title: str
-    subtitle: Optional[str] = None
-    authors: List[str] = field(default_factory=list)
-    language: Optional[str] = None
-    subjects: List[str] = field(default_factory=list)
-    topics: List[str] = field(default_factory=list)
-    description: Optional[str] = None
-    isbn_10: Optional[str] = None
-    isbn_13: Optional[str] = None
-    page_count: Optional[int] = None
-    print_type: Optional[str] = None
-    published_date: Optional[date] = None
-    cover_url: Optional[str] = None
-    info_url: Optional[str] = None
-    raw: Dict[str, Any] = field(default_factory=dict)
-    dedupe_key: Optional[str] = None
+    subtitle: str | None = None
+    authors: list[str] = field(default_factory=list)
+    language: str | None = None
+    subjects: list[str] = field(default_factory=list)
+    topics: list[str] = field(default_factory=list)
+    description: str | None = None
+    isbn_10: str | None = None
+    isbn_13: str | None = None
+    page_count: int | None = None
+    print_type: str | None = None
+    published_date: date | None = None
+    cover_url: str | None = None
+    info_url: str | None = None
+    raw: dict[str, Any] = field(default_factory=dict)
+    dedupe_key: str | None = None
 
 
 SOURCE_PRIORITY = {

@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,12 +10,12 @@ from app.repositories import BookFilters, BookRepository
 @dataclass
 class BookDetail:
     book: Book
-    sources: List[BookSource]
+    sources: list[BookSource]
 
 
 @dataclass
 class BookListResult:
-    books: List[Book]
+    books: list[Book]
     total: int
 
 
@@ -28,7 +27,7 @@ async def list_books(
     return BookListResult(books=books, total=total)
 
 
-async def get_book_detail(session: AsyncSession, book_id: str) -> Optional[BookDetail]:
+async def get_book_detail(session: AsyncSession, book_id: str) -> BookDetail | None:
     repo = BookRepository(session)
     book = await repo.get(book_id)
     if not book:

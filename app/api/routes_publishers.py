@@ -1,5 +1,3 @@
-from typing import List
-
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,7 +9,7 @@ from app.schemas.publisher import PublisherSchema
 router = APIRouter(prefix="/publishers", tags=["publishers"])
 
 
-@router.get("", response_model=List[PublisherSchema])
-async def list_publishers(session: AsyncSession = Depends(get_session)) -> List[Publisher]:
+@router.get("", response_model=list[PublisherSchema])
+async def list_publishers(session: AsyncSession = Depends(get_session)) -> list[Publisher]:
     repo = PublisherRepository(session)
     return await repo.list_all()

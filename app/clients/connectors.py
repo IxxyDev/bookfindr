@@ -1,7 +1,7 @@
 import logging
 import re
+from collections.abc import Awaitable, Callable
 from datetime import date, datetime, timedelta
-from typing import Awaitable, Callable, Dict, List, Optional
 
 import httpx
 import xlrd
@@ -15,9 +15,9 @@ from app.utils.http import get_with_retries, request_with_retries
 logger = logging.getLogger(__name__)
 
 
-async def fetch_connectors(publisher: PublisherConfig) -> List[BookRecord]:
+async def fetch_connectors(publisher: PublisherConfig) -> list[BookRecord]:
     connectors = publisher.connectors or []
-    results: List[BookRecord] = []
+    results: list[BookRecord] = []
     for name in connectors:
         fetcher = CONNECTOR_MAP.get(name)
         if not fetcher:
@@ -35,14 +35,14 @@ async def fetch_connectors(publisher: PublisherConfig) -> List[BookRecord]:
 OREILLY_SEARCH_URL = "https://learning.oreilly.com/api/v2/search/"
 
 
-def _oreilly_authors(obj: dict) -> List[str]:
+def _oreilly_authors(obj: dict) -> list[str]:
     authors = obj.get("authors") or []
     if isinstance(authors, str):
         return [authors]
     return [a for a in authors if a]
 
 
-def _oreilly_published(obj: dict) -> Optional[date]:
+def _oreilly_published(obj: dict) -> date | None:
     for key in ["issued", "date_added", "timestamp"]:
         published = parse_date(obj.get(key))
         if published:
@@ -51,8 +51,8 @@ def _oreilly_published(obj: dict) -> Optional[date]:
 
 
 async def _fetch_oreilly_api(
-    publisher: PublisherConfig, publishers_filter: Optional[str] = None
-) -> List[BookRecord]:
+    publisher: PublisherConfig, publishers_filter: str | None = None
+) -> list[BookRecord]:
     settings = get_settings()
     cutoff = date.today() - timedelta(days=settings.window_days)
     timeout = httpx.Timeout(settings.request_timeout, connect=settings.request_timeout)
@@ -61,7 +61,7 @@ async def _fetch_oreilly_api(
     if publishers_filter:
         params["publishers"] = publishers_filter
 
-    results: List[BookRecord] = []
+    results: list[BookRecord] = []
     async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
         while True:
             resp = await get_with_retries(client, OREILLY_SEARCH_URL, params=params)
@@ -121,19 +121,19 @@ async def _fetch_oreilly_api(
     return results
 
 
-async def fetch_oreilly_new_upcoming(publisher: PublisherConfig) -> List[BookRecord]:
+async def fetch_oreilly_new_upcoming(publisher: PublisherConfig) -> list[BookRecord]:
     return await _fetch_oreilly_api(publisher)
 
 
-async def fetch_addison_wesley(publisher: PublisherConfig) -> List[BookRecord]:
+async def fetch_addison_wesley(publisher: PublisherConfig) -> list[BookRecord]:
     return await _fetch_oreilly_api(publisher, publishers_filter="Addison-Wesley Professional")
 
 
-async def fetch_pearson(publisher: PublisherConfig) -> List[BookRecord]:
+async def fetch_pearson(publisher: PublisherConfig) -> list[BookRecord]:
     return await _fetch_oreilly_api(publisher, publishers_filter="Pearson")
 
 
-async def fetch_wrox(publisher: PublisherConfig) -> List[BookRecord]:
+async def fetch_wrox(publisher: PublisherConfig) -> list[BookRecord]:
     return await _fetch_oreilly_api(publisher, publishers_filter="Wrox Press")
 
 
@@ -144,7 +144,7 @@ DMK_MAX_PAGES = 5
 DMK_ISBN_RE = re.compile(r"97[89][-0-9]{10,14}")
 
 
-def _parse_dmk_page(html_text: str) -> List[dict]:
+def _parse_dmk_page(html_text: str) -> list[dict]:
     html = HTMLParser(html_text)
     cards = []
     for card in html.css(".book-card"):
@@ -172,15 +172,13 @@ def _parse_dmk_page(html_text: str) -> List[dict]:
     return cards
 
 
-async def fetch_dmk_catalog(publisher: PublisherConfig) -> List[BookRecord]:
+async def fetch_dmk_catalog(publisher: PublisherConfig) -> list[BookRecord]:
     settings = get_settings()
     timeout = httpx.Timeout(settings.request_timeout, connect=settings.request_timeout)
     headers = {"User-Agent": settings.user_agent}
-    results: List[BookRecord] = []
+    results: list[BookRecord] = []
 
-    async with httpx.AsyncClient(
-        timeout=timeout, headers=headers, follow_redirects=True
-    ) as client:
+    async with httpx.AsyncClient(timeout=timeout, headers=headers, follow_redirects=True) as client:
         for page in range(1, DMK_MAX_PAGES + 1):
             params = {"PAGEN_1": page} if page > 1 else None
             resp = await get_with_retries(client, DMK_COMPUTER_URL, params=params)
@@ -218,13 +216,13 @@ async def fetch_dmk_catalog(publisher: PublisherConfig) -> List[BookRecord]:
 PITER_URL = "https://www.piter.com/collection/kompyutery-i-internet.json"
 
 
-async def fetch_piter_catalog(publisher: PublisherConfig) -> List[BookRecord]:
+async def fetch_piter_catalog(publisher: PublisherConfig) -> list[BookRecord]:
     settings = get_settings()
     timeout = httpx.Timeout(settings.request_timeout, connect=settings.request_timeout)
     headers = {"User-Agent": settings.user_agent}
     cutoff = date.today() - timedelta(days=settings.window_days)
 
-    results: List[BookRecord] = []
+    results: list[BookRecord] = []
     page = 1
     per = 100
     total = None
@@ -274,13 +272,13 @@ async def fetch_piter_catalog(publisher: PublisherConfig) -> List[BookRecord]:
     return results
 
 
-def _piter_prop_map(prod: dict) -> Dict[int, str]:
+def _piter_prop_map(prod: dict) -> dict[int, str]:
     return {p["id"]: p.get("title") for p in prod.get("properties", [])}
 
 
-def _piter_char_values(prod: dict) -> Dict[str, List[str]]:
+def _piter_char_values(prod: dict) -> dict[str, list[str]]:
     prop_map = _piter_prop_map(prod)
-    values: Dict[str, List[str]] = {}
+    values: dict[str, list[str]] = {}
     for ch in prod.get("characteristics") or []:
         name = prop_map.get(ch.get("property_id"))
         if not name:
@@ -289,7 +287,7 @@ def _piter_char_values(prod: dict) -> Dict[str, List[str]]:
     return values
 
 
-def _piter_published_date(prod: dict) -> Optional[date]:
+def _piter_published_date(prod: dict) -> date | None:
     values = _piter_char_values(prod)
     if "год" in values:
         try:
@@ -306,7 +304,7 @@ def _piter_published_date(prod: dict) -> Optional[date]:
     return None
 
 
-def _piter_authors(prod: dict) -> List[str]:
+def _piter_authors(prod: dict) -> list[str]:
     values = _piter_char_values(prod)
     authors = values.get("автор(ы)") or values.get("автор") or []
     if authors:
@@ -314,7 +312,7 @@ def _piter_authors(prod: dict) -> List[str]:
     return []
 
 
-def _piter_isbn(prod: dict) -> Optional[str]:
+def _piter_isbn(prod: dict) -> str | None:
     values = _piter_char_values(prod)
     isbn_vals = values.get("isbn") or []
     if isbn_vals:
@@ -322,7 +320,7 @@ def _piter_isbn(prod: dict) -> Optional[str]:
     return None
 
 
-def _piter_pages(prod: dict) -> Optional[int]:
+def _piter_pages(prod: dict) -> int | None:
     values = _piter_char_values(prod)
     if "страниц" in values:
         for val in values["страниц"]:
@@ -333,12 +331,12 @@ def _piter_pages(prod: dict) -> Optional[int]:
     return None
 
 
-def _piter_cover(prod: dict) -> Optional[str]:
+def _piter_cover(prod: dict) -> str | None:
     img = prod.get("first_image") or {}
     return img.get("large_url") or img.get("original_url") or img.get("url")
 
 
-async def fetch_bhv_store(publisher: PublisherConfig) -> List[BookRecord]:
+async def fetch_bhv_store(publisher: PublisherConfig) -> list[BookRecord]:
     """WooCommerce store feed."""
     settings = get_settings()
     timeout = httpx.Timeout(settings.request_timeout, connect=settings.request_timeout)
@@ -347,7 +345,7 @@ async def fetch_bhv_store(publisher: PublisherConfig) -> List[BookRecord]:
     page = 1
     per_page = 50
     max_pages = 3
-    results: List[BookRecord] = []
+    results: list[BookRecord] = []
     base = "https://bhv.ru/wp-json/wc/store/products"
 
     async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
@@ -413,7 +411,7 @@ def _strip_html(text: str) -> str:
 ISBN13_IN_TEXT_RE = re.compile(r"97[89][-\s]?[0-9][-\s]?[0-9]{2,}[-\s]?[0-9]{2,}[-\s]?[0-9]")
 
 
-def _find_isbn_in_text(text: str) -> Optional[str]:
+def _find_isbn_in_text(text: str) -> str | None:
     if not text:
         return None
     m = ISBN13_IN_TEXT_RE.search(text)
@@ -435,16 +433,16 @@ MIROMA_BASE = "https://miromabook.ru"
 PRICE_LINK_RE = re.compile(r'href="([^"]+\.(?:xls|xlsx|zip))"', re.I)
 
 
-def _extract_price_links(html_text: str, base: str) -> List[str]:
+def _extract_price_links(html_text: str, base: str) -> list[str]:
     links = PRICE_LINK_RE.findall(html_text)
     return [link if link.startswith("http") else base + link for link in links]
 
 
-async def fetch_miroma_price(publisher: PublisherConfig) -> List[BookRecord]:
+async def fetch_miroma_price(publisher: PublisherConfig) -> list[BookRecord]:
     settings = get_settings()
     timeout = httpx.Timeout(settings.request_timeout, connect=settings.request_timeout)
     headers = {"User-Agent": settings.user_agent}
-    results: List[BookRecord] = []
+    results: list[BookRecord] = []
     async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
         listing = await get_with_retries(client, f"{MIROMA_BASE}/prays-listy/")
         for url in _extract_price_links(listing.text, MIROMA_BASE):
@@ -463,8 +461,8 @@ async def fetch_miroma_price(publisher: PublisherConfig) -> List[BookRecord]:
     return results
 
 
-def _parse_miroma_xls(content: bytes) -> List[BookRecord]:
-    records: List[BookRecord] = []
+def _parse_miroma_xls(content: bytes) -> list[BookRecord]:
+    records: list[BookRecord] = []
     try:
         book = xlrd.open_workbook(file_contents=content)
     except Exception:
@@ -514,14 +512,14 @@ def _parse_miroma_xls(content: bytes) -> List[BookRecord]:
 
 
 # ---- NiT (Insales JSON) ----
-async def fetch_nit_catalog(publisher: PublisherConfig) -> List[BookRecord]:
+async def fetch_nit_catalog(publisher: PublisherConfig) -> list[BookRecord]:
     settings = get_settings()
     timeout = httpx.Timeout(settings.request_timeout, connect=settings.request_timeout)
     headers = {"User-Agent": settings.user_agent}
     base = "https://nit.com.ru/collection/komp_lit.json"
     page = 1
     per = 100
-    results: List[BookRecord] = []
+    results: list[BookRecord] = []
     cutoff = date.today() - timedelta(days=settings.window_days)
     async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
         while True:
@@ -561,7 +559,7 @@ async def fetch_nit_catalog(publisher: PublisherConfig) -> List[BookRecord]:
     return results
 
 
-def _find_col(headers: List[str], keys: List[str]) -> Optional[int]:
+def _find_col(headers: list[str], keys: list[str]) -> int | None:
     for idx, h in enumerate(headers):
         for key in keys:
             if key in h:
@@ -570,8 +568,7 @@ def _find_col(headers: List[str], keys: List[str]) -> Optional[int]:
 
 
 PACKT_SEARCH_URL = (
-    "https://www.packtpub.com/en-us/search?"
-    "q=&product-type=book&sort=publication-newest"
+    "https://www.packtpub.com/en-us/search?q=&product-type=book&sort=publication-newest"
 )
 
 PACKT_ORDINAL_RE = re.compile(r"(\d+)(st|nd|rd|th)", re.IGNORECASE)
@@ -579,7 +576,7 @@ PACKT_PAGES_RE = re.compile(r"(\d{2,4})\s+pages")
 PACKT_ISBN_RE = re.compile(r"97[89]\d{10}")
 
 
-def _parse_packt_date(value: str) -> Optional[date]:
+def _parse_packt_date(value: str) -> date | None:
     if not value:
         return None
     cleaned = value.replace(",", "")
@@ -592,7 +589,7 @@ def _parse_packt_date(value: str) -> Optional[date]:
     return parse_date(cleaned)
 
 
-def _packt_pages(text: str) -> Optional[int]:
+def _packt_pages(text: str) -> int | None:
     m = PACKT_PAGES_RE.search(text.lower())
     if m:
         try:
@@ -602,8 +599,8 @@ def _packt_pages(text: str) -> Optional[int]:
     return None
 
 
-def _packt_isbn(card) -> Optional[str]:
-    values: List[str] = []
+def _packt_isbn(card) -> str | None:
+    values: list[str] = []
     for attr in [
         "data-default-selected-isbn",
         "data-default-isbn",
@@ -623,7 +620,7 @@ def _packt_isbn(card) -> Optional[str]:
     return None
 
 
-def _packt_authors(card) -> List[str]:
+def _packt_authors(card) -> list[str]:
     authors = []
     for span in card.css(".product-info-authors-container .product-info-authors-item span"):
         text = span.text(strip=True)
@@ -632,7 +629,7 @@ def _packt_authors(card) -> List[str]:
     return authors
 
 
-def _packt_published(card) -> Optional[date]:
+def _packt_published(card) -> date | None:
     attr_holder = card.css_first("[data-publication-date]")
     if attr_holder:
         published = _parse_packt_date(attr_holder.attributes.get("data-publication-date"))
@@ -658,7 +655,7 @@ BROWSER_USER_AGENT = (
 )
 
 
-async def fetch_packt_search(publisher: PublisherConfig) -> List[BookRecord]:
+async def fetch_packt_search(publisher: PublisherConfig) -> list[BookRecord]:
     settings = get_settings()
     timeout = httpx.Timeout(settings.request_timeout, connect=settings.request_timeout)
     # Packt returns 403 for non-browser user agents
@@ -669,7 +666,7 @@ async def fetch_packt_search(publisher: PublisherConfig) -> List[BookRecord]:
         resp = await get_with_retries(client, PACKT_SEARCH_URL)
     html = HTMLParser(resp.text)
     cards = html.css(".product-card-v2") or []
-    results: List[BookRecord] = []
+    results: list[BookRecord] = []
     for card in cards:
         title_el = card.css_first(".product-card-v2-content-info-text .ellipsis")
         title = title_el.text(strip=True) if title_el else None
@@ -720,7 +717,7 @@ MANNING_CATALOG_URL = "https://www.manning.com/search/getCatalogData"
 WHITESPACE_RE = re.compile(r"\s+")
 
 
-def _manning_cover_url(obj: dict) -> Optional[str]:
+def _manning_cover_url(obj: dict) -> str | None:
     image = obj.get("imageUrl")
     if not image:
         return None
@@ -730,7 +727,7 @@ def _manning_cover_url(obj: dict) -> Optional[str]:
     return base + image
 
 
-def _manning_authors(authorship: Optional[str]) -> List[str]:
+def _manning_authors(authorship: str | None) -> list[str]:
     if not authorship:
         return []
     clean = HTMLParser(authorship).text(separator=" ")
@@ -741,7 +738,7 @@ def _manning_authors(authorship: Optional[str]) -> List[str]:
     return [p.strip(" ,") for p in parts if p.strip()]
 
 
-def _manning_date(value: Optional[str]) -> Optional[date]:
+def _manning_date(value: str | None) -> date | None:
     if not value:
         return None
     date_part = value.split("T")[0]
@@ -751,7 +748,7 @@ def _manning_date(value: Optional[str]) -> Optional[date]:
         return parse_date(date_part)
 
 
-async def fetch_manning_catalog(publisher: PublisherConfig) -> List[BookRecord]:
+async def fetch_manning_catalog(publisher: PublisherConfig) -> list[BookRecord]:
     settings = get_settings()
     timeout = httpx.Timeout(settings.request_timeout, connect=settings.request_timeout)
     headers = {"User-Agent": settings.user_agent, "Content-Type": "application/json"}
@@ -769,14 +766,14 @@ async def fetch_manning_catalog(publisher: PublisherConfig) -> List[BookRecord]:
     }
 
     page = 1
-    results: List[BookRecord] = []
+    results: list[BookRecord] = []
     async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
         while True:
             payload["page"] = page
             resp = await request_with_retries(client, "POST", MANNING_CATALOG_URL, json=payload)
             data = resp.json()
             products = data.get("products") or []
-            page_dates: List[date] = []
+            page_dates: list[date] = []
             for prod in products:
                 published = _manning_date(prod.get("date"))
                 if published:
@@ -819,7 +816,7 @@ async def fetch_manning_catalog(publisher: PublisherConfig) -> List[BookRecord]:
 # eunivers/apress/nostarch/informit/binom were removed: they collected every <a>
 # on the page as a "book" with published_date=today. Re-add per-site connectors
 # here once proper selectors are written and tested against saved fixtures.
-CONNECTOR_MAP: Dict[str, Callable[[PublisherConfig], Awaitable[List[BookRecord]]]] = {
+CONNECTOR_MAP: dict[str, Callable[[PublisherConfig], Awaitable[list[BookRecord]]]] = {
     "oreilly_new_upcoming": fetch_oreilly_new_upcoming,
     "dmk_catalog": fetch_dmk_catalog,
     "piter_catalog": fetch_piter_catalog,

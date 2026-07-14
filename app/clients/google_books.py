@@ -1,6 +1,5 @@
 import logging
 from datetime import date, timedelta
-from typing import List
 
 import httpx
 
@@ -21,7 +20,7 @@ async def fetch_google_books(
     publisher: PublisherConfig,
     settings: Settings | None = None,
     window_days: int | None = None,
-) -> List[BookRecord]:
+) -> list[BookRecord]:
     cfg = settings or get_settings()
     if not publisher.google_books:
         return []
@@ -29,7 +28,7 @@ async def fetch_google_books(
     timeout = httpx.Timeout(cfg.request_timeout, connect=cfg.request_timeout)
     headers = {"User-Agent": cfg.user_agent}
     cutoff = date.today() - timedelta(days=window_days or cfg.window_days)
-    results: List[BookRecord] = []
+    results: list[BookRecord] = []
 
     inpublishers = publisher.google_books.inpublishers or [publisher.name]
     subjects = publisher.google_books.subjects or publisher.subjects or ["computers"]

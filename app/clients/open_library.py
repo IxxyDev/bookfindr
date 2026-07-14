@@ -1,6 +1,5 @@
 import logging
 from datetime import date, timedelta
-from typing import List, Optional
 
 import httpx
 
@@ -20,7 +19,7 @@ async def fetch_open_library(
     publisher: PublisherConfig,
     settings: Settings | None = None,
     window_days: int | None = None,
-) -> List[BookRecord]:
+) -> list[BookRecord]:
     cfg = settings or get_settings()
     if not publisher.open_library:
         return []
@@ -28,7 +27,7 @@ async def fetch_open_library(
     timeout = httpx.Timeout(cfg.request_timeout, connect=cfg.request_timeout)
     headers = {"User-Agent": cfg.user_agent}
     cutoff = date.today() - timedelta(days=window_days or cfg.window_days)
-    results: List[BookRecord] = []
+    results: list[BookRecord] = []
 
     publishers = publisher.open_library.publishers or [publisher.name]
     languages = publisher.open_library.languages or publisher.languages or []
@@ -102,7 +101,7 @@ async def fetch_open_library(
     return results
 
 
-def _parse_publish_date(values: Optional[list]) -> date | None:
+def _parse_publish_date(values: list | None) -> date | None:
     if not values:
         return None
     parsed_dates = []
@@ -123,13 +122,13 @@ def _find_isbn(isbn_list, length: int) -> str | None:
     return None
 
 
-def _cover_url(cover_id: Optional[int]) -> str | None:
+def _cover_url(cover_id: int | None) -> str | None:
     if not cover_id:
         return None
     return f"https://covers.openlibrary.org/b/id/{cover_id}-L.jpg"
 
 
-def _info_url(key: Optional[str]) -> str | None:
+def _info_url(key: str | None) -> str | None:
     if not key:
         return None
     return f"https://openlibrary.org{key}"

@@ -1,5 +1,4 @@
 from datetime import date, datetime
-from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -7,9 +6,9 @@ from pydantic import BaseModel, ConfigDict, Field
 class BookSourceSchema(BaseModel):
     id: str
     source: str
-    source_key: Optional[str]
-    fetched_at: Optional[str]
-    raw: Optional[dict]
+    source_key: str | None
+    fetched_at: str | None
+    raw: dict | None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -17,21 +16,21 @@ class BookSourceSchema(BaseModel):
 class BookSchema(BaseModel):
     id: str
     title: str
-    subtitle: Optional[str]
-    authors: List[str] = Field(default_factory=list)
+    subtitle: str | None
+    authors: list[str] = Field(default_factory=list)
     publisher_id: str
-    language: Optional[str]
-    subjects: List[str] = Field(default_factory=list)
-    topics: List[str] = Field(default_factory=list)
-    description: Optional[str]
-    isbn_10: Optional[str]
-    isbn_13: Optional[str]
-    page_count: Optional[int]
-    print_type: Optional[str]
-    published_date: Optional[date]
-    cover_url: Optional[str]
-    info_url: Optional[str]
-    source_primary: Optional[str]
+    language: str | None
+    subjects: list[str] = Field(default_factory=list)
+    topics: list[str] = Field(default_factory=list)
+    description: str | None
+    isbn_10: str | None
+    isbn_13: str | None
+    page_count: int | None
+    print_type: str | None
+    published_date: date | None
+    cover_url: str | None
+    info_url: str | None
+    source_primary: str | None
     source_keys: dict = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
@@ -40,4 +39,4 @@ class BookSchema(BaseModel):
 
 
 class BookDetailSchema(BookSchema):
-    sources: List[BookSourceSchema] = Field(default_factory=list)
+    sources: list[BookSourceSchema] = Field(default_factory=list)

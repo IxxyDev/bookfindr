@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from collections.abc import AsyncGenerator
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import String
 from sqlalchemy.ext.asyncio import (
@@ -21,7 +21,7 @@ _async_session: async_sessionmaker[AsyncSession] | None = None
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class Base(DeclarativeBase):
@@ -48,7 +48,7 @@ def get_async_session() -> async_sessionmaker[AsyncSession]:
     return _async_session
 
 
-async def get_session() -> AsyncGenerator[AsyncSession, None]:
+async def get_session() -> AsyncGenerator[AsyncSession]:
     async with get_async_session()() as session:
         yield session
 

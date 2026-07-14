@@ -1,7 +1,7 @@
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
-from typing import Optional, Sequence
 
 from sqlalchemy import Select, and_, delete, func, or_, select, text
 from sqlalchemy.exc import OperationalError
@@ -15,12 +15,12 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class BookFilters:
-    publisher_id: Optional[str] = None
-    language: Optional[str] = None
-    subject: Optional[str] = None
-    query: Optional[str] = None
-    date_from: Optional[date] = None
-    date_to: Optional[date] = None
+    publisher_id: str | None = None
+    language: str | None = None
+    subject: str | None = None
+    query: str | None = None
+    date_from: date | None = None
+    date_to: date | None = None
 
 
 class BookRepository:
@@ -65,9 +65,7 @@ class BookRepository:
             conditions.append(Book.published_date <= filters.date_to)
         return conditions
 
-    async def _resolve_fts_ids(
-        self, query: str, limit: int
-    ) -> tuple[list[str] | None, bool]:
+    async def _resolve_fts_ids(self, query: str, limit: int) -> tuple[list[str] | None, bool]:
         """Return (fts_ids | None, is_empty). None signals LIKE fallback."""
         try:
             fts_ids = await self._fts_search(query, limit)
@@ -83,18 +81,14 @@ class BookRepository:
     ) -> tuple[list[Book], int]:
         conditions = self._build_conditions(filters)
         if filters.query:
-            fts_ids, is_empty = await self._resolve_fts_ids(
-                filters.query, 10000
-            )
+            fts_ids, is_empty = await self._resolve_fts_ids(filters.query, 10000)
             if is_empty:
                 return [], 0
             if fts_ids is not None:
                 conditions.append(Book.id.in_(fts_ids))
             else:
                 pattern = f"%{filters.query}%"
-                conditions.append(
-                    or_(Book.title.ilike(pattern), Book.description.ilike(pattern))
-                )
+                conditions.append(or_(Book.title.ilike(pattern), Book.description.ilike(pattern)))
 
         count_stmt = select(func.count()).select_from(Book)
         if conditions:
@@ -120,7 +114,7 @@ class BookRepository:
         _, total = await self.list_with_count(filters, limit=1, offset=0)
         return total
 
-    async def get(self, book_id: str) -> Optional[Book]:
+    async def get(self, book_id: str) -> Book | None:
         return await self._session.get(Book, book_id)
 
     async def list_sources(self, book_id: str) -> list[BookSource]:
@@ -128,8 +122,8 @@ class BookRepository:
         return (await self._session.scalars(stmt)).all()
 
     async def find_existing(
-        self, isbn_13: Optional[str], isbn_10: Optional[str], dedupe_key: str
-    ) -> Optional[Book]:
+        self, isbn_13: str | None, isbn_10: str | None, dedupe_key: str
+    ) -> Book | None:
         stmt = select(Book)
         conditions = []
         if isbn_13:

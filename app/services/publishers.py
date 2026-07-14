@@ -1,5 +1,4 @@
 import logging
-from typing import Dict
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,10 +9,10 @@ from app.repositories import PublisherRepository
 logger = logging.getLogger(__name__)
 
 
-async def sync_publishers(session: AsyncSession, config: PublishersFile) -> Dict[str, Publisher]:
+async def sync_publishers(session: AsyncSession, config: PublishersFile) -> dict[str, Publisher]:
     repo = PublisherRepository(session)
     existing = await repo.map_by_id()
-    saved: Dict[str, Publisher] = {}
+    saved: dict[str, Publisher] = {}
     for pub_cfg in config.publishers:
         publisher = existing.get(pub_cfg.id)
         if not publisher:

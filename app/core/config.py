@@ -1,6 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import yaml
 from pydantic import BaseModel, Field, field_validator
@@ -8,24 +8,24 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class GoogleBooksConfig(BaseModel):
-    inpublishers: List[str] = Field(default_factory=list)
-    subjects: List[str] = Field(default_factory=list)
+    inpublishers: list[str] = Field(default_factory=list)
+    subjects: list[str] = Field(default_factory=list)
 
 
 class OpenLibraryConfig(BaseModel):
-    publishers: List[str] = Field(default_factory=list)
-    languages: List[str] = Field(default_factory=list)
+    publishers: list[str] = Field(default_factory=list)
+    languages: list[str] = Field(default_factory=list)
 
 
 class PublisherConfig(BaseModel):
     id: str
     name: str
-    languages: List[str] = Field(default_factory=list)
-    subjects: List[str] = Field(default_factory=list)
-    google_books: Optional[GoogleBooksConfig] = None
-    open_library: Optional[OpenLibraryConfig] = None
-    connectors: List[str] = Field(default_factory=list)
-    aliases: List[str] = Field(default_factory=list)
+    languages: list[str] = Field(default_factory=list)
+    subjects: list[str] = Field(default_factory=list)
+    google_books: GoogleBooksConfig | None = None
+    open_library: OpenLibraryConfig | None = None
+    connectors: list[str] = Field(default_factory=list)
+    aliases: list[str] = Field(default_factory=list)
 
     @field_validator("id")
     @classmethod
@@ -34,15 +34,15 @@ class PublisherConfig(BaseModel):
 
 
 class PublishersFile(BaseModel):
-    publishers: List[PublisherConfig]
+    publishers: list[PublisherConfig]
     window_days: int = 90
 
 
 class Settings(BaseSettings):
     app_env: str = "dev"
     database_url: str = "sqlite+aiosqlite:///./bookfindr.db"
-    google_books_api_key: Optional[str] = None
-    sync_api_key: Optional[str] = None
+    google_books_api_key: str | None = None
+    sync_api_key: str | None = None
     window_days: int = 90
     request_timeout: float = 15.0
     max_results_per_source: int = 200
@@ -52,14 +52,14 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
-@lru_cache()
+@lru_cache
 def get_settings() -> Settings:
     return Settings()
 
 
-def load_publishers(config_path: Optional[str] = None) -> PublishersFile:
+def load_publishers(config_path: str | None = None) -> PublishersFile:
     path = Path(config_path or get_settings().publishers_file)
     if not path.exists():
         raise FileNotFoundError(f"Publishers config not found at {path}")
-    raw: Dict[str, Any] = yaml.safe_load(path.read_text()) or {}
+    raw: dict[str, Any] = yaml.safe_load(path.read_text()) or {}
     return PublishersFile(**raw)

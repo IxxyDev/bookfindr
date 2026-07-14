@@ -1,7 +1,7 @@
 import hashlib
 import logging
-from datetime import date, datetime, timezone
-from typing import Iterable, Optional, Tuple
+from collections.abc import Iterable
+from datetime import UTC, date, datetime
 from uuid import uuid4
 
 from sqlalchemy.exc import IntegrityError
@@ -23,18 +23,18 @@ def build_dedupe_key(record: BookRecord) -> str:
 
 async def find_existing_book(
     repo: BookRepository, record: BookRecord, dedupe_key: str | None = None
-) -> Optional[Book]:
+) -> Book | None:
     key = dedupe_key or record.dedupe_key or build_dedupe_key(record)
     return await repo.find_existing(record.isbn_13, record.isbn_10, key)
 
 
-def _should_replace(current_source: Optional[str], incoming_source: str) -> bool:
+def _should_replace(current_source: str | None, incoming_source: str) -> bool:
     current_score = SOURCE_PRIORITY.get(current_source or "", 0)
     incoming_score = SOURCE_PRIORITY.get(incoming_source, 0)
     return incoming_score > current_score
 
 
-def merge_book(existing: Book, record: BookRecord) -> Tuple[Book, bool]:
+def merge_book(existing: Book, record: BookRecord) -> tuple[Book, bool]:
     updated = False
     source_update = _should_replace(existing.source_primary, record.source)
 
@@ -83,14 +83,14 @@ async def attach_source(repo: BookRepository, book_id: str, record: BookRecord) 
         source=record.source,
         source_key=record.source_key,
         raw=record.raw,
-        fetched_at=datetime.now(timezone.utc),
+        fetched_at=datetime.now(UTC),
     )
     await repo.add_source(source)
 
 
 async def _upsert_one(
     session: AsyncSession, repo: BookRepository, record: BookRecord
-) -> Optional[str]:
+) -> str | None:
     """Upsert a single record inside a savepoint; returns 'new', 'updated' or None."""
     async with session.begin_nested():
         existing = await find_existing_book(repo, record, dedupe_key=record.dedupe_key)

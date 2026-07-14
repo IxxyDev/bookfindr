@@ -1,5 +1,4 @@
 from datetime import date, timedelta
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
@@ -17,12 +16,12 @@ router = APIRouter(prefix="/books", tags=["books"])
 
 @router.get("")
 async def list_books(
-    publisher_id: Optional[str] = None,
-    language: Optional[str] = None,
-    subject: Optional[str] = None,
-    q: Optional[str] = None,
-    date_from: Optional[date] = Query(None, description="Published after (inclusive)"),
-    date_to: Optional[date] = Query(None, description="Published before (inclusive)"),
+    publisher_id: str | None = None,
+    language: str | None = None,
+    subject: str | None = None,
+    q: str | None = None,
+    date_from: date | None = Query(None, description="Published after (inclusive)"),
+    date_to: date | None = Query(None, description="Published before (inclusive)"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     session: AsyncSession = Depends(get_session),

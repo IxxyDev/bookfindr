@@ -1,8 +1,7 @@
 import argparse
 import asyncio
 import logging
-from datetime import date, datetime, timedelta, timezone
-from typing import List, Optional
+from datetime import UTC, date, datetime, timedelta
 from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,10 +22,10 @@ logger = logging.getLogger(__name__)
 sync_lock = asyncio.Lock()
 
 
-def _filter_recent_records(records: List[BookRecord], window_days: int) -> List[BookRecord]:
+def _filter_recent_records(records: list[BookRecord], window_days: int) -> list[BookRecord]:
     today = date.today()
     cutoff = today - timedelta(days=window_days)
-    filtered: List[BookRecord] = []
+    filtered: list[BookRecord] = []
     for record in records:
         published = record.published_date
         if not published:
@@ -42,11 +41,11 @@ def _filter_recent_records(records: List[BookRecord], window_days: int) -> List[
 async def run_sync(
     session: AsyncSession,
     config: PublishersFile,
-    publisher_id: Optional[str] = None,
-    sources: Optional[List[str]] = None,
+    publisher_id: str | None = None,
+    sources: list[str] | None = None,
     dry_run: bool = False,
-) -> List[FetchRun]:
-    runs: List[FetchRun] = []
+) -> list[FetchRun]:
+    runs: list[FetchRun] = []
     use_sources = sources or ["connectors"]
 
     await sync_publishers(session, config)
@@ -59,7 +58,7 @@ async def run_sync(
             id=str(uuid4()),
             publisher_id=pub.id,
             source=",".join(use_sources),
-            started_at=datetime.now(timezone.utc),
+            started_at=datetime.now(UTC),
             status="running",
             new_count=0,
             updated_count=0,
@@ -67,7 +66,7 @@ async def run_sync(
         session.add(run)
         await session.flush()
         try:
-            records: List[BookRecord] = []
+            records: list[BookRecord] = []
             if "google_books" in use_sources:
                 records.extend(await fetch_google_books(pub, settings, config.window_days))
             if "open_library" in use_sources:
@@ -97,13 +96,13 @@ async def run_sync(
             run.status = "error"
             run.error = str(exc)
         finally:
-            run.finished_at = datetime.now(timezone.utc)
+            run.finished_at = datetime.now(UTC)
             await session.commit()
             runs.append(run)
     return runs
 
 
-async def run_once_from_cli(publisher_id: Optional[str] = None, dry_run: bool = False) -> None:
+async def run_once_from_cli(publisher_id: str | None = None, dry_run: bool = False) -> None:
     await init_db()
     config = load_publishers()
     async with sync_lock:
