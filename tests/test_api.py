@@ -108,3 +108,32 @@ async def test_root_page_renders(client):
     res = await client.get("/")
     assert res.status_code == 200
     assert "Bookfindr" in res.text
+
+
+@pytest.fixture()
+async def api_book_with_source(db_session, api_book) -> Book:
+    from datetime import UTC, datetime
+
+    from app.models.book_source import BookSource
+
+    db_session.add(
+        BookSource(
+            id=str(uuid4()),
+            book_id=api_book.id,
+            source="google_books",
+            source_key="gb-1",
+            raw={"id": "gb-1"},
+            fetched_at=datetime.now(UTC),
+        )
+    )
+    await db_session.commit()
+    return api_book
+
+
+async def test_book_detail_with_sources(client, api_book_with_source):
+    res = await client.get(f"/books/{api_book_with_source.id}")
+    assert res.status_code == 200
+    sources = res.json()["sources"]
+    assert len(sources) == 1
+    assert sources[0]["source"] == "google_books"
+    assert sources[0]["fetched_at"]

@@ -7,7 +7,7 @@ class BookSourceSchema(BaseModel):
     id: str
     source: str
     source_key: str | None
-    fetched_at: str | None
+    fetched_at: datetime | None
     raw: dict | None
 
     model_config = ConfigDict(from_attributes=True)
