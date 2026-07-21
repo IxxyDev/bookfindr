@@ -67,7 +67,8 @@ def merge_book(existing: Book, record: BookRecord) -> tuple[Book, bool]:
         existing.source_primary = record.source
         updated = True
 
-    keys = existing.source_keys or {}
+    # Copy: mutating the tracked dict in place is invisible to SQLAlchemy change detection
+    keys = dict(existing.source_keys or {})
     if record.source not in keys or keys.get(record.source) != record.source_key:
         keys[record.source] = record.source_key
         existing.source_keys = keys

@@ -94,3 +94,24 @@ def test_merge_book_lower_priority_no_overwrite():
     merged, changed = merge_book(book, record)
     assert merged.title == "Existing Title"
     assert merged.description == "Existing desc"
+    assert merged.description == "Existing desc"
+
+
+async def test_upsert_second_source_persists_source_keys(db_session, sample_publisher):
+    from sqlalchemy import select
+
+    from app.services.books import upsert_records
+
+    first = _make_record(source="google_books", source_key="g1", title="Persist Me")
+    await upsert_records(db_session, [first])
+    await db_session.commit()
+    db_session.expunge_all()
+
+    second = _make_record(source="open_library", source_key="o1", title="Persist Me")
+    _, updated = await upsert_records(db_session, [second])
+    await db_session.commit()
+    db_session.expunge_all()
+
+    assert updated == 1
+    book = (await db_session.scalars(select(Book).where(Book.title == "Persist Me"))).one()
+    assert book.source_keys == {"google_books": "g1", "open_library": "o1"}
