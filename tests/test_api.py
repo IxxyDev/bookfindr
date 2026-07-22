@@ -137,3 +137,13 @@ async def test_book_detail_with_sources(client, api_book_with_source):
     assert len(sources) == 1
     assert sources[0]["source"] == "google_books"
     assert sources[0]["fetched_at"]
+
+
+async def test_sync_run_requires_api_key(client, monkeypatch):
+    from app.core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "sync_api_key", "secret")
+    res = await client.post("/sync/run", json={"dry_run": True})
+    assert res.status_code == 403
+    res = await client.post("/sync/run", json={"dry_run": True}, headers={"X-Api-Key": "nope"})
+    assert res.status_code == 403

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import secrets
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy import desc, select
@@ -26,7 +27,9 @@ _background_tasks: set[asyncio.Task] = set()
 
 async def _check_sync_api_key(x_api_key: str | None = Header(None)) -> None:
     settings = get_settings()
-    if settings.sync_api_key and x_api_key != settings.sync_api_key:
+    if not settings.sync_api_key:
+        return
+    if not x_api_key or not secrets.compare_digest(x_api_key, settings.sync_api_key):
         raise HTTPException(status_code=403, detail="Invalid or missing API key")
 
 
