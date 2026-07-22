@@ -81,3 +81,25 @@ async def test_fts_search_multiple_terms(db_session, fts_books):
     repo = BookRepository(db_session)
     result = await repo.list(BookFilters(query="deep dive"), limit=50, offset=0)
     assert len(result) >= 1
+
+
+async def test_fts_query_with_quotes_does_not_error(db_session, fts_books, caplog):
+    repo = BookRepository(db_session)
+    filters = BookFilters(query='python "internals')
+    with caplog.at_level("WARNING"):
+        books, total = await repo.list_with_count(filters, limit=10, offset=0)
+    assert "FTS5 search failed" not in caplog.text
+    assert total == 1
+    assert books[0].title == "Advanced Python Programming"
+
+
+async def test_like_fallback_escapes_wildcards(db_session, fts_books):
+    repo = BookRepository(db_session)
+    assert repo._escape_like("100%_sure") == r"100\%\_sure"
+    assert repo._escape_like(r"50\_off") == r"50\\\_off"
+
+
+async def test_whitespace_only_query_is_ignored(db_session, fts_books):
+    repo = BookRepository(db_session)
+    _, total = await repo.list_with_count(BookFilters(query="   "), limit=10, offset=0)
+    assert total == len(fts_books)

@@ -29,7 +29,8 @@ class BookRepository:
 
     @staticmethod
     def _sanitize_fts_query(query: str) -> str:
-        tokens = query.split()
+        # FTS5 string syntax: wrap each token in quotes, doubling embedded quotes
+        tokens = query.replace('"', '""').split()
         return " ".join(f'"{token}"' for token in tokens if token)
 
     async def _fts_search(self, query: str, limit: int) -> list[str]:
@@ -48,7 +49,7 @@ class BookRepository:
 
     @staticmethod
     def _escape_like(value: str) -> str:
-        return value.replace("%", r"\%").replace("_", r"\_")
+        return value.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_")
 
     def _build_conditions(self, filters: BookFilters) -> list:
         conditions = []
@@ -80,15 +81,21 @@ class BookRepository:
         self, filters: BookFilters, limit: int, offset: int
     ) -> tuple[list[Book], int]:
         conditions = self._build_conditions(filters)
-        if filters.query:
-            fts_ids, is_empty = await self._resolve_fts_ids(filters.query, 10000)
+        query = (filters.query or "").strip()
+        if query:
+            fts_ids, is_empty = await self._resolve_fts_ids(query, 10000)
             if is_empty:
                 return [], 0
             if fts_ids is not None:
                 conditions.append(Book.id.in_(fts_ids))
             else:
-                pattern = f"%{filters.query}%"
-                conditions.append(or_(Book.title.ilike(pattern), Book.description.ilike(pattern)))
+                pattern = f"%{self._escape_like(query)}%"
+                conditions.append(
+                    or_(
+                        Book.title.ilike(pattern, escape="\\"),
+                        Book.description.ilike(pattern, escape="\\"),
+                    )
+                )
 
         count_stmt = select(func.count()).select_from(Book)
         if conditions:
