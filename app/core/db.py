@@ -2,8 +2,11 @@ import asyncio
 import logging
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
+from pathlib import Path
 
-from sqlalchemy import String, event
+from alembic import command
+from alembic.config import Config as AlembicConfig
+from sqlalchemy import Connection, String, event, inspect
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -15,6 +18,11 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+ALEMBIC_INI = PROJECT_ROOT / "alembic.ini"
+# Revision that matches the schema create_all() produced before Alembic was introduced.
+BASELINE_REVISION = "0001"
 
 _engine: AsyncEngine | None = None
 _async_session: async_sessionmaker[AsyncSession] | None = None
@@ -69,8 +77,16 @@ async def rebuild_fts_index() -> None:
         await conn.exec_driver_sql("INSERT INTO book_fts(book_fts) VALUES('rebuild')")
 
 
+FTS_OBJECTS_DROP_SQL = (
+    "DROP TRIGGER IF EXISTS books_ai",
+    "DROP TRIGGER IF EXISTS books_au",
+    "DROP TRIGGER IF EXISTS books_ad",
+    "DROP TABLE IF EXISTS book_fts",
+)
+
+
 def create_fts_objects(conn) -> None:
-    """Create FTS5 virtual table and triggers (used in sync context)."""
+    """Create FTS5 virtual table and triggers (idempotent; used by migration 0001 and tests)."""
     conn.exec_driver_sql(
         """
         CREATE VIRTUAL TABLE IF NOT EXISTS book_fts
@@ -121,13 +137,30 @@ def create_fts_objects(conn) -> None:
     )
 
 
-async def init_db() -> None:
-    # Import models for metadata
-    from app import models  # noqa: F401
+def _alembic_config(connection: Connection) -> AlembicConfig:
+    cfg = AlembicConfig(str(ALEMBIC_INI))
+    cfg.set_main_option("script_location", str(PROJECT_ROOT / "migrations"))
+    cfg.attributes["connection"] = connection
+    return cfg
 
+
+def run_migrations(connection: Connection) -> None:
+    """Upgrade the schema to head (sync; call via ``conn.run_sync``).
+
+    Databases created before Alembic have tables but no ``alembic_version``;
+    those are stamped at the baseline revision instead of re-running its DDL.
+    """
+    cfg = _alembic_config(connection)
+    inspector = inspect(connection)
+    if inspector.has_table("books") and not inspector.has_table("alembic_version"):
+        logger.info("Stamping pre-Alembic database at revision %s", BASELINE_REVISION)
+        command.stamp(cfg, BASELINE_REVISION)
+    command.upgrade(cfg, "head")
+
+
+async def init_db() -> None:
     async with get_engine().begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-        await conn.run_sync(create_fts_objects)
+        await conn.run_sync(run_migrations)
     await rebuild_fts_index()
 
 
