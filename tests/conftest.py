@@ -5,7 +5,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.core.db import Base, create_fts_objects
+from app.core.db import Base, create_fts_objects, enable_sqlite_foreign_keys
 from app.models.book import Book
 from app.models.publisher import Publisher
 
@@ -21,6 +21,7 @@ async def db_engine():
         "sqlite+aiosqlite://",
         connect_args={"check_same_thread": False},
     )
+    enable_sqlite_foreign_keys(engine)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(create_fts_objects)

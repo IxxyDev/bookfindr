@@ -3,7 +3,7 @@ import logging
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 
-from sqlalchemy import String
+from sqlalchemy import String, event
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -30,14 +30,25 @@ class Base(DeclarativeBase):
     updated_at: Mapped[datetime] = mapped_column(default=_utcnow, onupdate=_utcnow)
 
 
+def enable_sqlite_foreign_keys(engine: AsyncEngine) -> None:
+    """SQLite ignores FOREIGN KEY constraints unless the pragma is set per connection."""
+
+    @event.listens_for(engine.sync_engine, "connect")
+    def _set_pragma(dbapi_connection, _connection_record) -> None:
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
+
 def get_engine() -> AsyncEngine:
     global _engine
     if _engine is None:
         settings = get_settings()
-        connect_args = (
-            {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
-        )
+        is_sqlite = settings.database_url.startswith("sqlite")
+        connect_args = {"check_same_thread": False} if is_sqlite else {}
         _engine = create_async_engine(settings.database_url, echo=False, connect_args=connect_args)
+        if is_sqlite:
+            enable_sqlite_foreign_keys(_engine)
     return _engine
 
 
