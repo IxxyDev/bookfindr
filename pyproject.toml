@@ -20,6 +20,7 @@ dependencies = [
     "selectolax>=0.4.12",
     "xlrd>=2.0.2",
     "alembic>=1.20.0",
+    "openpyxl>=3.1.5",
 ]
 
 [project.optional-dependencies]

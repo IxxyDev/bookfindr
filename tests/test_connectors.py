@@ -130,3 +130,61 @@ def test_extract_price_links():
         "https://miromabook.ru/files/price.xls",
         "https://miromabook.ru/files/full.XLSX",
     ]
+
+
+def _xlsx_bytes(rows: list[list[object]]) -> bytes:
+    import io
+
+    import openpyxl
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Прайс"
+    for row in rows:
+        ws.append(row)
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+MIROMA_ROWS = [
+    ["Наименование", "Автор", "Год", "ISBN"],
+    ["Linux для всех", "Иванов И., Петров П.", 2025, 9785000000001],
+    ["", "пусто", 2025, ""],
+    ["Без года", "", "", "978-5-0000-0002-8"],
+]
+
+
+def test_parse_miroma_workbook_xlsx():
+    from app.clients.connectors import _parse_miroma_workbook
+
+    records = _parse_miroma_workbook(_xlsx_bytes(MIROMA_ROWS))
+    assert [r.title for r in records] == ["Linux для всех", "Без года"]
+    first = records[0]
+    assert first.authors == ["Иванов И.", "Петров П."]
+    assert first.published_date == date(2025, 1, 1)
+    assert first.isbn_13 == "9785000000001"
+    assert first.source_key == "Прайс-1"
+    assert records[1].published_date is None
+    assert records[1].isbn_13 == "978-5-0000-0002-8"
+
+
+def test_parse_miroma_workbook_zip_with_xlsx():
+    import io
+    import zipfile
+
+    from app.clients.connectors import _parse_miroma_workbook
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as archive:
+        archive.writestr("readme.txt", "ignored")
+        archive.writestr("price/full.xlsx", _xlsx_bytes(MIROMA_ROWS))
+    records = _parse_miroma_workbook(buf.getvalue())
+    assert len(records) == 2
+
+
+def test_parse_miroma_workbook_garbage_is_empty():
+    from app.clients.connectors import _parse_miroma_workbook
+
+    assert _parse_miroma_workbook(b"not a spreadsheet") == []
+    assert _parse_miroma_workbook(b"PK\x03\x04broken") == []

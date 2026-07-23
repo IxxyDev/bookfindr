@@ -1,9 +1,12 @@
+import io
 import logging
 import re
+import zipfile
 from collections.abc import Awaitable, Callable
 from datetime import date, datetime, timedelta
 
 import httpx
+import openpyxl
 import xlrd
 from selectolax.parser import HTMLParser
 
@@ -448,7 +451,7 @@ async def fetch_miroma_price(publisher: PublisherConfig) -> list[BookRecord]:
         for url in _extract_price_links(listing.text, MIROMA_BASE):
             try:
                 resp = await get_with_retries(client, url)
-                book_list = _parse_miroma_xls(resp.content)
+                book_list = _parse_miroma_workbook(resp.content)
                 for rec in book_list:
                     rec.publisher_id = publisher.id
                     rec.source = "miroma_price"
@@ -461,51 +464,99 @@ async def fetch_miroma_price(publisher: PublisherConfig) -> list[BookRecord]:
     return results
 
 
-def _parse_miroma_xls(content: bytes) -> list[BookRecord]:
+ZIP_MAGIC = b"PK\x03\x04"
+
+
+def _cell_text(value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))  # xlrd/openpyxl hand numeric ISBNs and years back as floats
+    return str(value)
+
+
+def _sheets_from_xls(content: bytes) -> list[tuple[str, list[list[str]]]]:
+    book = xlrd.open_workbook(file_contents=content)
+    return [
+        (
+            sheet.name,
+            [
+                [_cell_text(sheet.cell_value(r, c)) for c in range(sheet.ncols)]
+                for r in range(sheet.nrows)
+            ],
+        )
+        for sheet in book.sheets()
+    ]
+
+
+def _sheets_from_xlsx(content: bytes) -> list[tuple[str, list[list[str]]]]:
+    workbook = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+    try:
+        return [
+            (ws.title, [[_cell_text(v) for v in row] for row in ws.iter_rows(values_only=True)])
+            for ws in workbook.worksheets
+        ]
+    finally:
+        workbook.close()
+
+
+def _workbook_sheets(content: bytes) -> list[tuple[str, list[list[str]]]]:
+    """Return (sheet name, rows) for an .xls, an .xlsx, or a .zip holding either."""
+    if not content.startswith(ZIP_MAGIC):
+        return _sheets_from_xls(content)
+    with zipfile.ZipFile(io.BytesIO(content)) as archive:
+        names = archive.namelist()
+        if "xl/workbook.xml" in names:
+            return _sheets_from_xlsx(content)
+        sheets: list[tuple[str, list[list[str]]]] = []
+        for name in names:
+            if name.lower().endswith((".xls", ".xlsx")):
+                sheets.extend(_workbook_sheets(archive.read(name)))
+        return sheets
+
+
+def _parse_miroma_workbook(content: bytes) -> list[BookRecord]:
     records: list[BookRecord] = []
     try:
-        book = xlrd.open_workbook(file_contents=content)
+        sheets = _workbook_sheets(content)
     except Exception:
+        logger.warning("Unreadable Miroma price list", exc_info=True)
         return records
-    for sheet in book.sheets():
-        headers = [str(sheet.cell_value(0, c)).strip().lower() for c in range(sheet.ncols)]
+    for sheet_name, rows in sheets:
+        if not rows:
+            continue
+        headers = [h.strip().lower() for h in rows[0]]
         col_title = _find_col(headers, ["назв", "наименование", "title"])
         if col_title is None:
             continue
         col_author = _find_col(headers, ["автор", "authors"])
         col_year = _find_col(headers, ["год", "year"])
         col_isbn = _find_col(headers, ["isbn"])
-        for r in range(1, sheet.nrows):
-            title = str(sheet.cell_value(r, col_title)).strip()
+        for r, row in enumerate(rows[1:], start=1):
+
+            def cell(col: int | None) -> str:
+                return row[col].strip() if col is not None and col < len(row) else ""
+
+            title = cell(col_title)
             if not title:
                 continue
-            authors = []
-            if col_author is not None:
-                val = str(sheet.cell_value(r, col_author)).strip()
-                if val:
-                    authors = [a.strip() for a in val.split(",") if a.strip()]
+            authors = [a.strip() for a in cell(col_author).split(",") if a.strip()]
             published = None
-            if col_year is not None:
-                try:
-                    year = int(str(sheet.cell_value(r, col_year)).strip()[:4])
-                    published = date(year, 1, 1)
-                except Exception:
-                    published = None
-            isbn = None
-            if col_isbn is not None:
-                isbn = str(sheet.cell_value(r, col_isbn)).strip()
+            year_text = cell(col_year)[:4]
+            if year_text.isdigit():
+                published = date(int(year_text), 1, 1)
             records.append(
                 BookRecord(
                     source="miroma_price",
-                    source_key=f"{sheet.name}-{r}",
+                    source_key=f"{sheet_name}-{r}",
                     publisher_id="",
                     title=title,
                     authors=authors,
                     language="ru",
                     subjects=["computers"],
                     published_date=published,
-                    isbn_13=isbn,
-                    raw={"sheet": sheet.name, "row": r},
+                    isbn_13=cell(col_isbn) or None,
+                    raw={"sheet": sheet_name, "row": r},
                 )
             )
     return records
