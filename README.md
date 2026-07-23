@@ -4,8 +4,8 @@ Single-user service that once a day (or on demand) pulls new computer/IT books f
 
 ## Stack and principles
 - Python 3.14, FastAPI, SQLite (with FTS5 for search), APScheduler.
-- HTTP clients: httpx with timeouts/retries; rate limiting per source.
-- Schema/ORM: SQLAlchemy 2.x (or SQLModel if preferred, but stay on SQLA core).
+- HTTP clients: httpx with timeouts and exponential-backoff retries (Retry-After honoured on 429/5xx). No per-source rate limiting beyond that.
+- Schema/ORM: SQLAlchemy 2.x; schema versioned with Alembic (`migrations/`), applied automatically on startup.
 - Config-first: publishers described in a YAML file; no auth/roles needed.
 - Idempotent upserts; store raw payloads for debugging; deduplicate across sources.
 
@@ -106,7 +106,7 @@ Dedup rules:
 - Manual “Sync now” button that hits /sync/run.
 
 ## Error handling & observability
-- Per-source timeouts + retry with backoff; 429 handling and pacing.
+- Per-source timeouts + retry with backoff; 429/5xx retried with Retry-After.
 - Log fetch_runs with status and error; keep raw payloads for debugging.
 - Validation layer to drop obviously bad rows (empty title, no date, etc.).
 
@@ -116,13 +116,13 @@ Dedup rules:
 - Env: `.env` with API keys (Google Books) and optional proxy; SQLite path configurable.
 
 ## Delivery plan (incremental)
-1) Init repo: pyproject (uv/poetry), FastAPI skeleton, config loader, SQLite migrations (Alembic or SQLAlchemy DDL).  
+1) Init repo: pyproject (uv), FastAPI skeleton, config loader, SQLite migrations (Alembic).  
 2) Models + FTS + publisher config loader + sample data.  
 3) Google Books/Open Library clients with normalization, dedup, upsert.  
 4) APScheduler daily job + POST /sync/run.  
 5) UI filters + list/detail.  
 6) Add first special connector (O'Reilly), then DMK if needed.  
-7) Polishing: tests, rate limiting, docs.
+7) Polishing: tests, docs.
 
 ## Getting started
 1) Copy env and adjust if needed:
@@ -148,12 +148,14 @@ uv run python -m app.services.sync
 - Поиск идёт через SQLite FTS5 (bm25) с фолбэком на LIKE.
 - Синк выполняется в фоне под глобальным локом (ручной запуск и cron не пересекаются); APScheduler daily job at 03:00 server time (can be changed in `app/main.py`).
 - HTTP: таймауты + ретраи с экспоненциальным бэкоффом и уважением Retry-After для 429/5xx; пагинация агрегаторов останавливается, как только страница выходит за window_days.
-- Sources: Google Books + Open Library + рабочие коннекторы: O'Reilly API (+ Addison-Wesley/Pearson/Wrox через него), Packt, Manning, БХВ, Питер, ДМК, НиТ, Miroma (прайс-XLS).
+- Sources: Google Books + Open Library + рабочие коннекторы: O'Reilly API (+ Addison-Wesley/Pearson/Wrox через него), Packt, Manning, БХВ, Питер, ДМК, НиТ, Miroma (прайс-листы XLS/XLSX, в том числе внутри ZIP).
 - Издательства без рабочего коннектора (Диалектика, Эксмо, Физматлит, АСТ, КНОРУС, Гелиос, E-Univers, Бином, No Starch, Apress, Sams) собираются только через агрегаторы; наивные скрейперы «все ссылки со страницы» удалены — новые коннекторы добавляются в `CONNECTOR_MAP` с тестами на сохранённых фикстурах.
 - Книги с датой публикации в будущем сознательно не сохраняются: том появится в базе после выхода (окно window_days). Если понадобятся «upcoming» — убрать `purge_future_books` и фильтр в `_filter_recent_records`.
 
 ## Configuration
 - Publishers live in `publishers.yml`; edit/add entries and restart the app. On startup sync inserts/updates publishers table.
+- Schema changes: edit models, then `make revision m="describe change"` (Alembic autogenerate) and review the file in `migrations/versions/`. `make migrate` or app startup applies pending migrations; a database created before Alembic is stamped at the baseline automatically.
+- SQLite runs with `PRAGMA foreign_keys=ON`, so orphan rows are rejected.
 - `WINDOW_DAYS` env or `window_days` in YAML controls how far back to keep from sources.
 - `GOOGLE_BOOKS_API_KEY` optional but recommended to avoid rate limits.
 
