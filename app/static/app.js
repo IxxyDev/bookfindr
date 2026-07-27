@@ -225,7 +225,7 @@ function renderBooks(list) {
       <div class="meta">
         <div class="title-row">
           <h3>${highlightTerms(titleText, queryVal)}</h3>
-          <button class="ghost" data-id="${item.id}">Подробнее</button>
+          <button class="ghost" data-id="${escapeHtml(item.id)}">Подробнее</button>
         </div>
         <div class="authors muted">${escapeHtml((item.authors || []).join(", ") || "—")}</div>
         <div class="badges">
@@ -244,7 +244,11 @@ function renderBooks(list) {
 
 function buildLinks(item) {
   const links = [];
-  if (item.info_url) links.push(`<a href="${escapeHtml(item.info_url)}" target="_blank">Источник</a>`);
+  if (item.info_url) {
+    links.push(
+      `<a href="${escapeHtml(item.info_url)}" target="_blank" rel="noopener noreferrer">Источник</a>`
+    );
+  }
   if (item.isbn_13) links.push(`ISBN13: ${escapeHtml(item.isbn_13)}`);
   if (item.isbn_10) links.push(`ISBN10: ${escapeHtml(item.isbn_10)}`);
   return links.join(" · ");
@@ -282,7 +286,7 @@ async function openDetail(bookId) {
       <div class="info-grid">
         <div><strong>ISBN13</strong><br>${escapeHtml(book.isbn_13 || "—")}</div>
         <div><strong>ISBN10</strong><br>${escapeHtml(book.isbn_10 || "—")}</div>
-        <div><strong>Страниц</strong><br>${book.page_count || "—"}</div>
+        <div><strong>Страниц</strong><br>${escapeHtml(String(book.page_count || "—"))}</div>
         <div><strong>Темы</strong><br>${escapeHtml((book.subjects || []).join(", ") || "—")}</div>
       </div>
       <div class="sources">
