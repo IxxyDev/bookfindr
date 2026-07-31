@@ -6,7 +6,7 @@ from pathlib import Path
 
 from alembic import command
 from alembic.config import Config as AlembicConfig
-from sqlalchemy import Connection, String, event, inspect
+from sqlalchemy import Connection, String, event
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -21,8 +21,10 @@ logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ALEMBIC_INI = PROJECT_ROOT / "alembic.ini"
-# Revision that matches the schema create_all() produced before Alembic was introduced.
+# Revision that matches the schema create_all() produced before Alembic was introduced;
+# migrations/env.py stamps databases that already have these tables but no version row.
 BASELINE_REVISION = "0001"
+LEGACY_TABLES = ("publishers", "books", "book_sources", "fetch_runs")
 
 _engine: AsyncEngine | None = None
 _async_session: async_sessionmaker[AsyncSession] | None = None
@@ -145,17 +147,8 @@ def _alembic_config(connection: Connection) -> AlembicConfig:
 
 
 def run_migrations(connection: Connection) -> None:
-    """Upgrade the schema to head (sync; call via ``conn.run_sync``).
-
-    Databases created before Alembic have tables but no ``alembic_version``;
-    those are stamped at the baseline revision instead of re-running its DDL.
-    """
-    cfg = _alembic_config(connection)
-    inspector = inspect(connection)
-    if inspector.has_table("books") and not inspector.has_table("alembic_version"):
-        logger.info("Stamping pre-Alembic database at revision %s", BASELINE_REVISION)
-        command.stamp(cfg, BASELINE_REVISION)
-    command.upgrade(cfg, "head")
+    """Upgrade the schema to head (sync; call via ``conn.run_sync``)."""
+    command.upgrade(_alembic_config(connection), "head")
 
 
 async def init_db() -> None:
