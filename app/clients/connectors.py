@@ -1,3 +1,4 @@
+import asyncio
 import io
 import logging
 import re
@@ -451,7 +452,8 @@ async def fetch_miroma_price(publisher: PublisherConfig) -> list[BookRecord]:
         for url in _extract_price_links(listing.text, MIROMA_BASE):
             try:
                 resp = await get_with_retries(client, url)
-                book_list = _parse_miroma_workbook(resp.content)
+                # CPU-bound parsing of a third-party file: keep it off the event loop
+                book_list = await asyncio.to_thread(_parse_miroma_workbook, resp.content)
                 for rec in book_list:
                     rec.publisher_id = publisher.id
                     rec.source = "miroma_price"
@@ -465,6 +467,19 @@ async def fetch_miroma_price(publisher: PublisherConfig) -> list[BookRecord]:
 
 
 ZIP_MAGIC = b"PK\x03\x04"
+# Price lists come from a third-party site: bound what a crafted archive can make us do.
+ZIP_MAX_MEMBERS = 50
+ZIP_MAX_UNCOMPRESSED_BYTES = 50 * 1024 * 1024
+ZIP_MAX_DEPTH = 1
+
+
+def _check_zip_budget(archive: zipfile.ZipFile) -> None:
+    infos = archive.infolist()
+    if len(infos) > ZIP_MAX_MEMBERS:
+        raise ValueError(f"archive has {len(infos)} members (limit {ZIP_MAX_MEMBERS})")
+    total = sum(info.file_size for info in infos)
+    if total > ZIP_MAX_UNCOMPRESSED_BYTES:
+        raise ValueError(f"archive expands to {total} bytes (limit {ZIP_MAX_UNCOMPRESSED_BYTES})")
 
 
 def _cell_text(value) -> str:
@@ -500,18 +515,21 @@ def _sheets_from_xlsx(content: bytes) -> list[tuple[str, list[list[str]]]]:
         workbook.close()
 
 
-def _workbook_sheets(content: bytes) -> list[tuple[str, list[list[str]]]]:
+def _workbook_sheets(content: bytes, depth: int = 0) -> list[tuple[str, list[list[str]]]]:
     """Return (sheet name, rows) for an .xls, an .xlsx, or a .zip holding either."""
     if not content.startswith(ZIP_MAGIC):
         return _sheets_from_xls(content)
     with zipfile.ZipFile(io.BytesIO(content)) as archive:
+        _check_zip_budget(archive)
         names = archive.namelist()
         if "xl/workbook.xml" in names:
             return _sheets_from_xlsx(content)
+        if depth >= ZIP_MAX_DEPTH:
+            raise ValueError("nested archives are not supported")
         sheets: list[tuple[str, list[list[str]]]] = []
         for name in names:
             if name.lower().endswith((".xls", ".xlsx")):
-                sheets.extend(_workbook_sheets(archive.read(name)))
+                sheets.extend(_workbook_sheets(archive.read(name), depth + 1))
         return sheets
 
 

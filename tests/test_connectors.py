@@ -188,3 +188,65 @@ def test_parse_miroma_workbook_garbage_is_empty():
 
     assert _parse_miroma_workbook(b"not a spreadsheet") == []
     assert _parse_miroma_workbook(b"PK\x03\x04broken") == []
+
+
+def test_cell_text_normalizes_numeric_cells():
+    from app.clients.connectors import _cell_text
+
+    assert _cell_text(None) == ""
+    assert _cell_text(2025.0) == "2025"  # xlrd returns every number as float
+    assert _cell_text(9785000000001.0) == "9785000000001"
+    assert _cell_text(3.5) == "3.5"
+    assert _cell_text(2025) == "2025"
+
+
+def test_parse_miroma_workbook_xls_via_xlrd(monkeypatch):
+    from app.clients import connectors
+
+    grid = [["Название", "Год", "ISBN"], ["Книга про сети", 2025.0, 9785000000001.0]]
+
+    class _Sheet:
+        name = "Лист1"
+        nrows = len(grid)
+        ncols = len(grid[0])
+
+        def cell_value(self, r, c):
+            return grid[r][c]
+
+    class _Book:
+        def sheets(self):
+            return [_Sheet()]
+
+    monkeypatch.setattr(connectors.xlrd, "open_workbook", lambda file_contents: _Book())
+    records = connectors._parse_miroma_workbook(b"\xd0\xcf\x11\xe0 legacy xls")
+    assert len(records) == 1
+    assert records[0].title == "Книга про сети"
+    assert records[0].published_date == date(2025, 1, 1)
+    assert records[0].isbn_13 == "9785000000001"
+    assert records[0].source_key == "Лист1-1"
+
+
+def test_parse_miroma_workbook_rejects_nested_archives():
+    import io
+    import zipfile
+
+    from app.clients.connectors import _parse_miroma_workbook
+
+    inner = io.BytesIO()
+    with zipfile.ZipFile(inner, "w") as archive:
+        archive.writestr("price.xlsx", _xlsx_bytes(MIROMA_ROWS))
+    outer = io.BytesIO()
+    with zipfile.ZipFile(outer, "w") as archive:
+        archive.writestr("inner.xlsx", inner.getvalue())  # a zip masquerading as a workbook
+    assert _parse_miroma_workbook(outer.getvalue()) == []
+
+
+def test_parse_miroma_workbook_enforces_size_budget(monkeypatch):
+    from app.clients import connectors
+
+    payload = _xlsx_bytes(MIROMA_ROWS)
+    monkeypatch.setattr(connectors, "ZIP_MAX_UNCOMPRESSED_BYTES", 100)
+    assert connectors._parse_miroma_workbook(payload) == []
+    monkeypatch.setattr(connectors, "ZIP_MAX_UNCOMPRESSED_BYTES", 50 * 1024 * 1024)
+    monkeypatch.setattr(connectors, "ZIP_MAX_MEMBERS", 1)
+    assert connectors._parse_miroma_workbook(payload) == []
