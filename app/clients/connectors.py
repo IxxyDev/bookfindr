@@ -138,7 +138,7 @@ async def fetch_pearson(publisher: PublisherConfig) -> list[BookRecord]:
 
 
 async def fetch_wrox(publisher: PublisherConfig) -> list[BookRecord]:
-    return await _fetch_oreilly_api(publisher, publishers_filter="Wrox Press")
+    return await _fetch_oreilly_api(publisher, publishers_filter="Wrox")
 
 
 # ---- DMK Press computer-literature catalog (Bitrix HTML) ----
