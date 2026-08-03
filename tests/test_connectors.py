@@ -250,3 +250,44 @@ def test_parse_miroma_workbook_enforces_size_budget(monkeypatch):
     monkeypatch.setattr(connectors, "ZIP_MAX_UNCOMPRESSED_BYTES", 50 * 1024 * 1024)
     monkeypatch.setattr(connectors, "ZIP_MAX_MEMBERS", 1)
     assert connectors._parse_miroma_workbook(payload) == []
+
+
+def test_date_from_year_current_year_uses_fallback_or_today():
+    from app.clients.connectors import _date_from_year
+
+    today = date(2026, 9, 20)
+    assert _date_from_year(2026, today) == today
+    assert _date_from_year(2026, today, fallback=date(2026, 8, 1)) == date(2026, 8, 1)
+    assert _date_from_year(2025, today) == date(2025, 1, 1)
+    assert _date_from_year(2027, today, fallback=date(2026, 8, 1)) == date(2027, 1, 1)
+
+
+def _piter_product(year: str | None, updated_at: str | None) -> dict:
+    prod = {"properties": [{"id": 1, "title": "Год"}], "characteristics": []}
+    if year is not None:
+        prod["characteristics"].append({"property_id": 1, "title": year})
+    if updated_at is not None:
+        prod["updated_at"] = updated_at
+    return prod
+
+
+def test_piter_published_date(monkeypatch):
+    from app.clients import connectors
+
+    class _Today(date):
+        @classmethod
+        def today(cls):
+            return date(2026, 9, 20)
+
+    monkeypatch.setattr(connectors, "date", _Today)
+    current_year = connectors._piter_published_date(_piter_product("2026", "2026-09-01T10:00:00Z"))
+    assert current_year == date(2026, 9, 1)
+    assert connectors._piter_published_date(_piter_product("2026", None)) == date(2026, 9, 20)
+    assert connectors._piter_published_date(_piter_product("2024", "2026-09-01T10:00:00Z")) == date(
+        2024, 1, 1
+    )
+    assert connectors._piter_published_date(_piter_product("2027", None)) == date(2027, 1, 1)
+    assert connectors._piter_published_date(_piter_product(None, "2026-09-01T10:00:00Z")) == date(
+        2026, 9, 1
+    )
+    assert connectors._piter_published_date(_piter_product(None, None)) is None

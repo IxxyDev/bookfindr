@@ -291,21 +291,36 @@ def _piter_char_values(prod: dict) -> dict[str, list[str]]:
     return values
 
 
+def _date_from_year(year: int, today: date, fallback: date | None = None) -> date:
+    """Turn a year-only publication date into something the window filter can use.
+
+    Sources such as Piter and price lists only say "2026". Dating every such book
+    1 January would drop it as "older than the window" for most of the year, so a
+    current-year book is dated by ``fallback`` (e.g. the feed's updated_at) or by
+    first sighting. Past and future years keep 1 January and are filtered as usual.
+    """
+    if year == today.year:
+        return fallback or today
+    return date(year, 1, 1)
+
+
+def _piter_updated_at(prod: dict) -> date | None:
+    updated_at = prod.get("updated_at")
+    if not updated_at:
+        return None
+    try:
+        return datetime.fromisoformat(updated_at.replace("Z", "+00:00")).date()
+    except ValueError:
+        return None
+
+
 def _piter_published_date(prod: dict) -> date | None:
     values = _piter_char_values(prod)
-    if "год" in values:
-        try:
-            year = int(values["год"][0][:4])
-            return date(year, 1, 1)
-        except Exception:
-            pass
-    updated_at = prod.get("updated_at")
-    if updated_at:
-        try:
-            return datetime.fromisoformat(updated_at.replace("Z", "+00:00")).date()
-        except Exception:
-            return None
-    return None
+    updated = _piter_updated_at(prod)
+    year_text = (values.get("год") or [""])[0][:4]
+    if year_text.isdigit():
+        return _date_from_year(int(year_text), date.today(), fallback=updated)
+    return updated
 
 
 def _piter_authors(prod: dict) -> list[str]:
