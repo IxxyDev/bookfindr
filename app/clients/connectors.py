@@ -3,7 +3,7 @@ import io
 import logging
 import re
 import zipfile
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import date, datetime, timedelta
 
 import httpx
@@ -468,7 +468,9 @@ async def fetch_miroma_price(publisher: PublisherConfig) -> list[BookRecord]:
             try:
                 resp = await get_with_retries(client, url)
                 # CPU-bound parsing of a third-party file: keep it off the event loop
-                book_list = await asyncio.to_thread(_parse_miroma_workbook, resp.content)
+                book_list = await asyncio.to_thread(
+                    _parse_miroma_workbook, resp.content, [publisher.name, *publisher.aliases]
+                )
                 for rec in book_list:
                     rec.publisher_id = publisher.id
                     rec.source = "miroma_price"
@@ -548,24 +550,52 @@ def _workbook_sheets(content: bytes, depth: int = 0) -> list[tuple[str, list[lis
         return sheets
 
 
-def _parse_miroma_workbook(content: bytes) -> list[BookRecord]:
+def _normalize_isbn(value: str) -> str | None:
+    """Price lists print ISBNs hyphenated; store digits only so dedupe matches other sources."""
+    digits = value.replace("-", "").replace(" ", "")
+    return digits or None
+
+
+MIROMA_HEADER_SCAN_ROWS = 30
+MIROMA_TITLE_KEYS = ["назв", "наименование", "title"]
+
+
+def _find_header_row(rows: list[list[str]]) -> int | None:
+    """Skip the ordering preamble: the header is the first row that has a title column."""
+    for index, row in enumerate(rows[:MIROMA_HEADER_SCAN_ROWS]):
+        headers = [h.strip().lower() for h in row]
+        if _find_col(headers, MIROMA_TITLE_KEYS) is not None:
+            return index
+    return None
+
+
+def _parse_miroma_workbook(content: bytes, publisher_names: Sequence[str] = ()) -> list[BookRecord]:
+    """Parse a distributor price list into records.
+
+    ``publisher_names`` (name + aliases) narrows the "Издательство" column when the
+    sheet has one: a distributor lists dozens of publishers, we only want the
+    configured one.
+    """
     records: list[BookRecord] = []
     try:
         sheets = _workbook_sheets(content)
     except Exception:
         logger.warning("Unreadable Miroma price list", exc_info=True)
         return records
+    wanted = [name.lower() for name in publisher_names if name]
+    today = date.today()
     for sheet_name, rows in sheets:
-        if not rows:
+        header_index = _find_header_row(rows)
+        if header_index is None:
             continue
-        headers = [h.strip().lower() for h in rows[0]]
-        col_title = _find_col(headers, ["назв", "наименование", "title"])
-        if col_title is None:
-            continue
+        headers = [h.strip().lower() for h in rows[header_index]]
+        col_title = _find_col(headers, MIROMA_TITLE_KEYS)
         col_author = _find_col(headers, ["автор", "authors"])
         col_year = _find_col(headers, ["год", "year"])
         col_isbn = _find_col(headers, ["isbn"])
-        for r, row in enumerate(rows[1:], start=1):
+        col_pages = _find_col(headers, ["страниц", "pages"])
+        col_publisher = _find_col(headers, ["издательств", "publisher"])
+        for r, row in enumerate(rows[header_index + 1 :], start=header_index + 1):
 
             def cell(col: int | None) -> str:
                 return row[col].strip() if col is not None and col < len(row) else ""
@@ -573,11 +603,16 @@ def _parse_miroma_workbook(content: bytes) -> list[BookRecord]:
             title = cell(col_title)
             if not title:
                 continue
+            if wanted and col_publisher is not None:
+                publisher_cell = cell(col_publisher).lower()
+                if not any(name in publisher_cell for name in wanted):
+                    continue
             authors = [a.strip() for a in cell(col_author).split(",") if a.strip()]
             published = None
             year_text = cell(col_year)[:4]
             if year_text.isdigit():
-                published = date(int(year_text), 1, 1)
+                published = _date_from_year(int(year_text), today)
+            pages_text = cell(col_pages)
             records.append(
                 BookRecord(
                     source="miroma_price",
@@ -588,8 +623,9 @@ def _parse_miroma_workbook(content: bytes) -> list[BookRecord]:
                     language="ru",
                     subjects=["computers"],
                     published_date=published,
-                    isbn_13=cell(col_isbn) or None,
-                    raw={"sheet": sheet_name, "row": r},
+                    isbn_13=_normalize_isbn(cell(col_isbn)),
+                    page_count=int(pages_text) if pages_text.isdigit() else None,
+                    raw={"sheet": sheet_name, "row": r, "publisher": cell(col_publisher)},
                 )
             )
     return records

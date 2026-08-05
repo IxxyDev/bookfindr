@@ -166,7 +166,39 @@ def test_parse_miroma_workbook_xlsx():
     assert first.isbn_13 == "9785000000001"
     assert first.source_key == "Прайс-1"
     assert records[1].published_date is None
-    assert records[1].isbn_13 == "978-5-0000-0002-8"
+    assert records[1].isbn_13 == "9785000000028"  # hyphens stripped
+
+
+MIROMA_DISTRIBUTOR_ROWS = [
+    ["Тел.: 8 (812) 251-03-05", "", "", "", "", "Сумма заказа:"],
+    ["", "ЗАКАЗАТЬ АКТУАЛЬНЫЙ ПРАЙС", "www.miromabook.ru/", "", "", ""],
+    ["", "Название", "Автор", "Издательство", "Год издания", "Кол-во страниц", "ISBN"],
+    ["", "Linux для всех", "Иванов И.", "БХВ (г. Санкт-Петербург)", 2026, 320, "9785000000001"],
+    ["", "Сказки", "Пушкин А.С.", "Эксмо (г. Москва)", 2026, 100, "9785000000002"],
+    ["", "Старая книга по сетям", "Петров П.", "БХВ (г. Санкт-Петербург)", 2020, "", ""],
+]
+
+
+def test_parse_miroma_workbook_finds_header_after_preamble_and_filters_publisher():
+    from app.clients.connectors import _parse_miroma_workbook
+
+    everything = _parse_miroma_workbook(_xlsx_bytes(MIROMA_DISTRIBUTOR_ROWS))
+    assert [r.title for r in everything] == ["Linux для всех", "Сказки", "Старая книга по сетям"]
+
+    bhv_only = _parse_miroma_workbook(
+        _xlsx_bytes(MIROMA_DISTRIBUTOR_ROWS), publisher_names=["БХВ-Петербург", "BHV", "БХВ"]
+    )
+    assert [r.title for r in bhv_only] == ["Linux для всех", "Старая книга по сетям"]
+    assert bhv_only[0].page_count == 320
+    assert bhv_only[0].isbn_13 == "9785000000001"
+    assert bhv_only[0].published_date == date.today()  # current year: first sighting
+    assert bhv_only[1].published_date == date(2020, 1, 1)
+    assert bhv_only[0].raw["publisher"] == "БХВ (г. Санкт-Петербург)"
+
+    nothing = _parse_miroma_workbook(
+        _xlsx_bytes(MIROMA_DISTRIBUTOR_ROWS), publisher_names=["Miroma Book"]
+    )
+    assert nothing == []
 
 
 def test_parse_miroma_workbook_zip_with_xlsx():
