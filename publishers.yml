@@ -112,18 +112,8 @@ publishers:
     open_library:
       publishers: ["БХВ-Петербург", "BHV-Petersburg"]
       languages: ["rus"]
-    connectors: ["bhv_store"]
-  - id: miroma
-    name: Miroma Book
-    languages: [ru]
-    subjects: [computers]
-    connectors: ["miroma_price"]
-    google_books:
-      inpublishers: ["Miroma Book", "Мирома"]
-      subjects: ["computers"]
-    open_library:
-      publishers: ["Miroma Book"]
-      languages: ["rus"]
+    # miroma_price: distributor price list (miromabook.ru), rows filtered by name/aliases
+    connectors: ["bhv_store", "miroma_price"]
   - id: dmk
     name: ДМК Пресс
     aliases: ["DMK-Press", "ДМК-Пресс"]

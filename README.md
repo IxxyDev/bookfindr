@@ -148,7 +148,7 @@ uv run python -m app.services.sync
 - Поиск идёт через SQLite FTS5 (bm25) с фолбэком на LIKE.
 - Синк выполняется в фоне под глобальным локом (ручной запуск и cron не пересекаются); APScheduler daily job at 03:00 server time (can be changed in `app/main.py`).
 - HTTP: таймауты + ретраи с экспоненциальным бэкоффом и уважением Retry-After для 429/5xx; пагинация агрегаторов останавливается, как только страница выходит за window_days.
-- Sources: Google Books + Open Library + рабочие коннекторы: O'Reilly API (+ Addison-Wesley/Pearson/Wrox через него), Packt, Manning, БХВ, Питер, ДМК, НиТ, Miroma (прайс-листы XLS/XLSX, в том числе внутри ZIP).
+- Sources: Google Books + Open Library + рабочие коннекторы: O'Reilly API (+ Addison-Wesley/Pearson/Wrox через него), Packt, Manning, БХВ (магазин + прайс-листы дистрибьютора Miroma: XLS/XLSX, в том числе внутри ZIP; строки отбираются по имени/алиасам издательства), Питер, ДМК, НиТ. Коннектор `miroma_price` можно повесить на любое издательство из прайса.
 - Издательства без рабочего коннектора (Диалектика, Эксмо, Физматлит, АСТ, КНОРУС, Гелиос, E-Univers, Бином, No Starch, Apress, Sams) собираются только через агрегаторы; наивные скрейперы «все ссылки со страницы» удалены — новые коннекторы добавляются в `CONNECTOR_MAP` с тестами на сохранённых фикстурах.
 - Книги с датой публикации в будущем сознательно не сохраняются: том появится в базе после выхода (окно window_days). Если понадобятся «upcoming» — убрать `purge_future_books` и фильтр в `_filter_recent_records`.
 
