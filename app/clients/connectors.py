@@ -9,7 +9,7 @@ from datetime import date, datetime, timedelta
 import httpx
 import openpyxl
 import xlrd
-from selectolax.parser import HTMLParser
+from selectolax.lexbor import LexborHTMLParser
 
 from app.core.config import PublisherConfig, get_settings
 from app.services.types import BookRecord
@@ -149,7 +149,7 @@ DMK_ISBN_RE = re.compile(r"97[89][-0-9]{10,14}")
 
 
 def _parse_dmk_page(html_text: str) -> list[dict]:
-    html = HTMLParser(html_text)
+    html = LexborHTMLParser(html_text)
     cards = []
     for card in html.css(".book-card"):
         title_el = card.css_first("a.book-card__title")
@@ -424,7 +424,7 @@ async def fetch_bhv_store(publisher: PublisherConfig) -> list[BookRecord]:
 
 
 def _strip_html(text: str) -> str:
-    return HTMLParser(text).text() if text else ""
+    return LexborHTMLParser(text).text() if text else ""
 
 
 ISBN13_IN_TEXT_RE = re.compile(r"97[89][-\s]?[0-9][-\s]?[0-9]{2,}[-\s]?[0-9]{2,}[-\s]?[0-9]")
@@ -784,7 +784,7 @@ async def fetch_packt_search(publisher: PublisherConfig) -> list[BookRecord]:
 
     async with httpx.AsyncClient(timeout=timeout, headers=headers, follow_redirects=True) as client:
         resp = await get_with_retries(client, PACKT_SEARCH_URL)
-    html = HTMLParser(resp.text)
+    html = LexborHTMLParser(resp.text)
     cards = html.css(".product-card-v2") or []
     results: list[BookRecord] = []
     for card in cards:
@@ -850,7 +850,7 @@ def _manning_cover_url(obj: dict) -> str | None:
 def _manning_authors(authorship: str | None) -> list[str]:
     if not authorship:
         return []
-    clean = HTMLParser(authorship).text(separator=" ")
+    clean = LexborHTMLParser(authorship).text(separator=" ")
     clean = WHITESPACE_RE.sub(" ", clean).strip()
     if not clean:
         return []

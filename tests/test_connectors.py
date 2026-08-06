@@ -1,6 +1,6 @@
 from datetime import date
 
-from selectolax.parser import HTMLParser
+from selectolax.lexbor import LexborHTMLParser
 
 from app.clients.connectors import (
     _extract_price_links,
@@ -34,7 +34,7 @@ def test_packt_pages():
 
 
 def test_packt_isbn_from_data_attr():
-    html = HTMLParser(
+    html = LexborHTMLParser(
         '<div class="card"><span data-default-selected-isbn="9781803239349"></span></div>'
     )
     card = html.css_first(".card")
@@ -42,7 +42,7 @@ def test_packt_isbn_from_data_attr():
 
 
 def test_packt_isbn_missing():
-    card = HTMLParser('<div class="card"><span>no isbn</span></div>').css_first(".card")
+    card = LexborHTMLParser('<div class="card"><span>no isbn</span></div>').css_first(".card")
     assert _packt_isbn(card) is None
 
 
