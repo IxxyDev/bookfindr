@@ -36,7 +36,7 @@ async def fetch_google_books(
     async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
         for inpub in inpublishers:
             for subj in subjects:
-                query = f'subject:{subj}+inpublisher:"{inpub}"'
+                query = f'subject:{subj} inpublisher:"{inpub}"'
                 start_index = 0
                 while True:
                     params = {
