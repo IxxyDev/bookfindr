@@ -1,6 +1,7 @@
 from datetime import date, timedelta
 
 import httpx
+import pytest
 
 from app.clients.google_books import fetch_google_books
 from app.core.config import GoogleBooksConfig, PublisherConfig, Settings
@@ -47,6 +48,32 @@ async def test_query_terms_are_joined_with_a_space(monkeypatch):
 
     assert sent[0].url.params["q"] == 'subject:computers inpublisher:"Apress"'
     assert b"%2B" not in sent[0].url.raw_path
+
+
+async def test_api_key_goes_in_a_header_not_the_url(monkeypatch):
+    sent = install_mock_transport(monkeypatch, lambda request: httpx.Response(200, json={}))
+
+    await fetch_google_books(_publisher(), _settings())
+
+    assert sent[0].headers["X-Goog-Api-Key"] == API_KEY
+    assert API_KEY not in str(sent[0].url)
+
+
+async def test_http_error_message_does_not_carry_the_api_key(monkeypatch):
+    install_mock_transport(monkeypatch, lambda request: httpx.Response(403))
+
+    with pytest.raises(httpx.HTTPStatusError) as raised:
+        await fetch_google_books(_publisher(), _settings())
+
+    assert API_KEY not in str(raised.value)
+
+
+async def test_no_key_header_without_a_configured_key(monkeypatch):
+    sent = install_mock_transport(monkeypatch, lambda request: httpx.Response(200, json={}))
+
+    await fetch_google_books(_publisher(), Settings(google_books_api_key=None))
+
+    assert "X-Goog-Api-Key" not in sent[0].headers
 
 
 async def test_items_become_records(monkeypatch):

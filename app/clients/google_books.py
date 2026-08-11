@@ -27,6 +27,9 @@ async def fetch_google_books(
 
     timeout = httpx.Timeout(cfg.request_timeout, connect=cfg.request_timeout)
     headers = {"User-Agent": cfg.user_agent}
+    if cfg.google_books_api_key:
+        # a header keeps the key out of URLs, which end up in logs and fetch_runs.error
+        headers["X-Goog-Api-Key"] = cfg.google_books_api_key
     cutoff = date.today() - timedelta(days=window_days or cfg.window_days)
     results: list[BookRecord] = []
 
@@ -46,8 +49,6 @@ async def fetch_google_books(
                         "maxResults": 40,
                         "startIndex": start_index,
                     }
-                    if cfg.google_books_api_key:
-                        params["key"] = cfg.google_books_api_key
                     resp = await get_with_retries(client, GOOGLE_BOOKS_ENDPOINT, params=params)
                     data = resp.json()
                     items = data.get("items") or []
