@@ -15,6 +15,7 @@ from app.core.config import PublisherConfig, get_settings
 from app.services.types import BookRecord
 from app.utils.dates import parse_date
 from app.utils.http import get_with_retries, request_with_retries
+from app.utils.isbn import normalize_isbn10, normalize_isbn13
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +106,7 @@ async def _fetch_oreilly_api(
                         topics=[],
                         description=description,
                         isbn_10=None,
-                        isbn_13=item.get("isbn"),
+                        isbn_13=normalize_isbn13(item.get("isbn")),
                         page_count=pages,
                         print_type="book",
                         published_date=published,
@@ -145,7 +146,8 @@ async def fetch_wrox(publisher: PublisherConfig) -> list[BookRecord]:
 DMK_BASE = "https://www.dmkpress.com"
 DMK_COMPUTER_URL = DMK_BASE + "/catalog/computer/"
 DMK_MAX_PAGES = 5
-DMK_ISBN_RE = re.compile(r"97[89][-0-9]{10,14}")
+# the whole hyphenated run: normalize_isbn13 rejects it unless it holds exactly 13 digits
+DMK_ISBN_RE = re.compile(r"97[89][-0-9]+")
 
 
 def _parse_dmk_page(html_text: str) -> list[dict]:
@@ -158,7 +160,7 @@ def _parse_dmk_page(html_text: str) -> list[dict]:
         href = title_el.attributes.get("href") or ""
         info_url = href if href.startswith("http") else DMK_BASE + href
         m = DMK_ISBN_RE.search(href)
-        isbn_13 = m.group(0).replace("-", "") if m else None
+        isbn_13 = normalize_isbn13(m.group(0)) if m else None
         cover_el = card.css_first(".book-card__pic img")
         cover_url = cover_el.attributes.get("src") if cover_el else None
         if cover_url and cover_url.startswith("/"):
@@ -333,9 +335,10 @@ def _piter_authors(prod: dict) -> list[str]:
 
 def _piter_isbn(prod: dict) -> str | None:
     values = _piter_char_values(prod)
-    isbn_vals = values.get("isbn") or []
-    if isbn_vals:
-        return isbn_vals[0]
+    for value in values.get("isbn") or []:
+        isbn = normalize_isbn13(value)
+        if isbn:
+            return isbn
     return None
 
 
@@ -434,9 +437,7 @@ def _find_isbn_in_text(text: str) -> str | None:
     if not text:
         return None
     m = ISBN13_IN_TEXT_RE.search(text)
-    if m:
-        return m.group(0).replace(" ", "").replace("-", "")
-    return None
+    return normalize_isbn13(m.group(0)) if m else None
 
 
 def _bhv_is_computing(item: dict) -> bool:
@@ -550,10 +551,15 @@ def _workbook_sheets(content: bytes, depth: int = 0) -> list[tuple[str, list[lis
         return sheets
 
 
-def _normalize_isbn(value: str) -> str | None:
-    """Price lists print ISBNs hyphenated; store digits only so dedupe matches other sources."""
-    digits = value.replace("-", "").replace(" ", "")
-    return digits or None
+ISBN_LIST_SEPARATORS_RE = re.compile(r"[,;/]")
+
+
+def _isbns_from_cell(value: str) -> tuple[str | None, str | None]:
+    """(ISBN-13, ISBN-10) from a price-list cell that may hold one, both or several."""
+    parts = ISBN_LIST_SEPARATORS_RE.split(value)
+    isbn_13 = next((i for i in map(normalize_isbn13, parts) if i), None)
+    isbn_10 = next((i for i in map(normalize_isbn10, parts) if i), None)
+    return isbn_13, isbn_10
 
 
 MIROMA_HEADER_SCAN_ROWS = 30
@@ -613,6 +619,7 @@ def _parse_miroma_workbook(content: bytes, publisher_names: Sequence[str] = ()) 
             if year_text.isdigit():
                 published = _date_from_year(int(year_text), today)
             pages_text = cell(col_pages)
+            isbn_13, isbn_10 = _isbns_from_cell(cell(col_isbn))
             records.append(
                 BookRecord(
                     source="miroma_price",
@@ -623,7 +630,8 @@ def _parse_miroma_workbook(content: bytes, publisher_names: Sequence[str] = ()) 
                     language="ru",
                     subjects=["computers"],
                     published_date=published,
-                    isbn_13=_normalize_isbn(cell(col_isbn)),
+                    isbn_13=isbn_13,
+                    isbn_10=isbn_10,
                     page_count=int(pages_text) if pages_text.isdigit() else None,
                     raw={"sheet": sheet_name, "row": r, "publisher": cell(col_publisher)},
                 )

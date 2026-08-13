@@ -115,6 +115,11 @@ def test_parse_dmk_page():
     assert old["authors"] == ["Автор А.", "Автор Б."]
 
 
+def test_parse_dmk_page_drops_isbn_of_wrong_length():
+    html = DMK_SAMPLE.replace("978-5-93700-473-4", "978-5-93700-473-4-99")
+    assert _parse_dmk_page(html)[0]["isbn_13"] is None
+
+
 def test_parse_dmk_page_empty():
     assert _parse_dmk_page("<html><body>nothing here</body></html>") == []
 
@@ -199,6 +204,23 @@ def test_parse_miroma_workbook_finds_header_after_preamble_and_filters_publisher
         _xlsx_bytes(MIROMA_DISTRIBUTOR_ROWS), publisher_names=["Miroma Book"]
     )
     assert nothing == []
+
+
+def test_parse_miroma_workbook_sorts_isbn_cells_into_13_and_10():
+    from app.clients.connectors import _parse_miroma_workbook
+
+    rows = [
+        ["Наименование", "ISBN"],
+        ["Два ISBN", "978-5-9775-1234-5, 978-5-9775-1234-6"],
+        ["Только десятизначный", "5-9775-1234-X"],
+        ["Мусор", "12345"],
+    ]
+    records = _parse_miroma_workbook(_xlsx_bytes(rows))
+    assert [(r.isbn_13, r.isbn_10) for r in records] == [
+        ("9785977512345", None),
+        (None, "597751234X"),
+        (None, None),
+    ]
 
 
 def test_parse_miroma_workbook_zip_with_xlsx():
@@ -292,6 +314,16 @@ def test_date_from_year_current_year_uses_fallback_or_today():
     assert _date_from_year(2026, today, fallback=date(2026, 8, 1)) == date(2026, 8, 1)
     assert _date_from_year(2025, today) == date(2025, 1, 1)
     assert _date_from_year(2027, today, fallback=date(2026, 8, 1)) == date(2027, 1, 1)
+
+
+def test_piter_isbn_is_stored_without_hyphens():
+    from app.clients.connectors import _piter_isbn
+
+    prod = {
+        "properties": [{"id": 7, "title": "ISBN"}],
+        "characteristics": [{"property_id": 7, "title": "978-5-4461-2345-6"}],
+    }
+    assert _piter_isbn(prod) == "9785446123456"
 
 
 def _piter_product(year: str | None, updated_at: str | None) -> dict:

@@ -8,6 +8,7 @@ from app.services.types import BookRecord
 from app.utils.dates import parse_date
 from app.utils.filters import is_computing as _is_computing_check
 from app.utils.http import get_with_retries
+from app.utils.isbn import normalize_isbn10, normalize_isbn13
 
 logger = logging.getLogger(__name__)
 
@@ -83,8 +84,12 @@ async def fetch_google_books(
                             subjects=volume.get("categories") or [],
                             topics=[],
                             description=volume.get("description"),
-                            isbn_10=_find_isbn(volume.get("industryIdentifiers"), "ISBN_10"),
-                            isbn_13=_find_isbn(volume.get("industryIdentifiers"), "ISBN_13"),
+                            isbn_10=normalize_isbn10(
+                                _find_isbn(volume.get("industryIdentifiers"), "ISBN_10")
+                            ),
+                            isbn_13=normalize_isbn13(
+                                _find_isbn(volume.get("industryIdentifiers"), "ISBN_13")
+                            ),
                             page_count=volume.get("pageCount"),
                             print_type=volume.get("printType"),
                             published_date=published,

@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Callable
 from datetime import date, timedelta
 
 import httpx
@@ -8,6 +9,7 @@ from app.services.types import BookRecord
 from app.utils.dates import parse_date
 from app.utils.filters import is_computing as _is_computing_check
 from app.utils.http import get_with_retries
+from app.utils.isbn import normalize_isbn10, normalize_isbn13
 from app.utils.lang import normalize_language
 
 logger = logging.getLogger(__name__)
@@ -99,8 +101,8 @@ async def fetch_open_library(
                         subjects=doc.get("subject") or [],
                         topics=doc.get("subject_facet") or [],
                         description=None,
-                        isbn_10=_find_isbn(doc.get("isbn"), 10),
-                        isbn_13=_find_isbn(doc.get("isbn"), 13),
+                        isbn_10=_first_valid(doc.get("isbn"), normalize_isbn10),
+                        isbn_13=_first_valid(doc.get("isbn"), normalize_isbn13),
                         page_count=doc.get("number_of_pages_median"),
                         print_type=None,
                         published_date=published,
@@ -140,14 +142,8 @@ def _parse_publish_date(values: list | None) -> date | None:
     return max(parsed_dates) if parsed_dates else None
 
 
-def _find_isbn(isbn_list, length: int) -> str | None:
-    if not isbn_list:
-        return None
-    for code in isbn_list:
-        cleaned = code.replace("-", "")
-        if len(cleaned) == length:
-            return cleaned
-    return None
+def _first_valid(codes: list[str] | None, normalize: Callable[[str], str | None]) -> str | None:
+    return next((isbn for isbn in map(normalize, codes or []) if isbn), None)
 
 
 def _cover_url(cover_id: int | None) -> str | None:

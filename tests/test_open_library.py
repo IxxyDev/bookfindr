@@ -63,3 +63,17 @@ async def test_doc_without_any_date_is_skipped(monkeypatch):
     install_mock_transport(monkeypatch, _first_page_only([_doc("/works/OL3W")]))
 
     assert await fetch_open_library(_publisher(), Settings()) == []
+
+
+async def test_isbns_are_validated_not_picked_by_length(monkeypatch):
+    published = date.today() - timedelta(days=5)
+    doc = _doc(
+        "/works/OL4W",
+        publish_date=[published.isoformat()],
+        isbn=["1234567890123", "978-1-4842-1234-5", "abcdefghij", "1-4842-1234-X"],
+    )
+    install_mock_transport(monkeypatch, _first_page_only([doc]))
+
+    records = await fetch_open_library(_publisher(), Settings())
+
+    assert (records[0].isbn_13, records[0].isbn_10) == ("9781484212345", "148421234X")

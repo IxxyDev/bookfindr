@@ -83,3 +83,16 @@ async def test_items_become_records(monkeypatch):
     records = await fetch_google_books(_publisher(), _settings())
 
     assert [(r.source_key, r.published_date) for r in records] == [("v1", published)]
+
+
+async def test_isbns_are_normalized(monkeypatch):
+    volume = _volume("v2", date.today() - timedelta(days=3))
+    volume["volumeInfo"]["industryIdentifiers"] = [
+        {"type": "ISBN_13", "identifier": "978-1-4842-1234-5"},
+        {"type": "ISBN_10", "identifier": "not-an-isbn"},
+    ]
+    install_mock_transport(monkeypatch, _first_page_only([volume]))
+
+    records = await fetch_google_books(_publisher(), _settings())
+
+    assert (records[0].isbn_13, records[0].isbn_10) == ("9781484212345", None)
