@@ -1,0 +1,65 @@
+from datetime import date, timedelta
+
+import httpx
+
+from app.clients.open_library import fetch_open_library
+from app.core.config import OpenLibraryConfig, PublisherConfig, Settings
+from tests.mock_http import install_mock_transport
+
+
+def _publisher() -> PublisherConfig:
+    return PublisherConfig(
+        id="apress",
+        name="Apress",
+        open_library=OpenLibraryConfig(publishers=["Apress"], languages=["eng"]),
+    )
+
+
+def _first_page_only(docs: list[dict]):
+    def handler(request: httpx.Request) -> httpx.Response:
+        first_page = request.url.params["page"] == "1"
+        return httpx.Response(200, json={"docs": docs if first_page else []})
+
+    return handler
+
+
+def _doc(key: str, **fields) -> dict:
+    return {"key": key, "title": "Programming Rust", "subject": ["Computer programming"], **fields}
+
+
+async def test_requests_the_fields_it_reads(monkeypatch):
+    sent = install_mock_transport(monkeypatch, _first_page_only([]))
+
+    await fetch_open_library(_publisher(), Settings())
+
+    fields = sent[0].url.params["fields"].split(",")
+    assert {"key", "title", "publish_date", "first_publish_year", "language", "isbn"} <= set(fields)
+
+
+async def test_publish_date_becomes_the_record_date(monkeypatch):
+    published = date.today() - timedelta(days=5)
+    doc = _doc("/works/OL1W", publish_date=[published.isoformat(), "2001"], language=["eng"])
+    install_mock_transport(monkeypatch, _first_page_only([doc]))
+
+    records = await fetch_open_library(_publisher(), Settings())
+
+    assert [(r.source_key, r.published_date, r.language) for r in records] == [
+        ("/works/OL1W", published, "en")
+    ]
+
+
+async def test_first_publish_year_is_the_fallback_date(monkeypatch):
+    doc = _doc("/works/OL2W", first_publish_year=date.today().year)
+    install_mock_transport(monkeypatch, _first_page_only([doc]))
+
+    records = await fetch_open_library(_publisher(), Settings(window_days=3650))
+
+    assert len(records) == 1
+    assert records[0].published_date is not None
+    assert records[0].published_date.year == date.today().year
+
+
+async def test_doc_without_any_date_is_skipped(monkeypatch):
+    install_mock_transport(monkeypatch, _first_page_only([_doc("/works/OL3W")]))
+
+    assert await fetch_open_library(_publisher(), Settings()) == []

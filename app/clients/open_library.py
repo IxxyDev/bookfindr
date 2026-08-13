@@ -8,11 +8,30 @@ from app.services.types import BookRecord
 from app.utils.dates import parse_date
 from app.utils.filters import is_computing as _is_computing_check
 from app.utils.http import get_with_retries
+from app.utils.lang import normalize_language
 
 logger = logging.getLogger(__name__)
 
 OPEN_LIBRARY_SEARCH = "https://openlibrary.org/search.json"
 MAX_PAGES = 50
+# search.json stopped returning publish_date unless asked for it by name
+SEARCH_FIELDS = ",".join(
+    [
+        "key",
+        "title",
+        "subtitle",
+        "author_name",
+        "publish_date",
+        "first_publish_year",
+        "language",
+        "subject",
+        "subject_facet",
+        "isbn",
+        "cover_i",
+        "number_of_pages_median",
+        "publisher",
+    ]
+)
 
 
 async def fetch_open_library(
@@ -41,6 +60,7 @@ async def fetch_open_library(
                     "publisher": pub_name,
                     "sort": "new",
                     "page": page,
+                    "fields": SEARCH_FIELDS,
                 }
                 if languages:
                     params["language"] = languages[0]
@@ -54,7 +74,7 @@ async def fetch_open_library(
                 added_this_page = 0
                 page_too_old = False
                 for doc in docs:
-                    published = _parse_publish_date(doc.get("publish_date"))
+                    published = _doc_published(doc)
                     if not published:
                         continue
                     if published < cutoff:
@@ -75,7 +95,7 @@ async def fetch_open_library(
                         title=doc.get("title") or "Untitled",
                         subtitle=doc.get("subtitle"),
                         authors=doc.get("author_name") or [],
-                        language=(doc.get("language") or [None])[0],
+                        language=normalize_language((doc.get("language") or [None])[0]),
                         subjects=doc.get("subject") or [],
                         topics=doc.get("subject_facet") or [],
                         description=None,
@@ -99,6 +119,14 @@ async def fetch_open_library(
                 if page > MAX_PAGES:
                     break
     return results
+
+
+def _doc_published(doc: dict) -> date | None:
+    published = _parse_publish_date(doc.get("publish_date"))
+    if published:
+        return published
+    year = doc.get("first_publish_year")
+    return parse_date(str(year)) if year else None
 
 
 def _parse_publish_date(values: list | None) -> date | None:
