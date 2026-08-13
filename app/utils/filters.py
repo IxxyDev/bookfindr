@@ -1,6 +1,9 @@
-COMPUTER_KEYWORDS = [
+import re
+
+# Matched at the start of a word, case-insensitively: "program" covers programming,
+# programmer; a substring match let "сет" hit "посетитель" and "данн" hit "данный".
+COMPUTING_STEMS = [
     "computer",
-    "computers",
     "program",
     "informatics",
     "information technology",
@@ -13,22 +16,23 @@ COMPUTER_KEYWORDS = [
     "machine learning",
     "cloud",
     "devops",
-    "ai",
-    "database",
     "програм",
     "информат",
     "вычисл",
     "сет",
-    "данн",
-    "ИБ",
+    r"данн(?:ые|ых|ым|ыми)\b",
     "кибер",
-    "машин",
-    "администр",
-    "искусствен",
-    "it",
+    "машинн",
+    "администрирован",
+    r"искусственн\w* интеллект",
 ]
+# Matched as whole words, case-sensitively: lowercased, "it" is the English pronoun.
+COMPUTING_ACRONYMS = ["IT", "AI", "ИБ"]
+
+COMPUTING_STEMS_RE = re.compile(r"\b(?:" + "|".join(COMPUTING_STEMS) + ")", re.IGNORECASE)
+COMPUTING_ACRONYMS_RE = re.compile(r"\b(?:" + "|".join(COMPUTING_ACRONYMS) + r")\b")
 
 
 def is_computing(text_fields: list[str]) -> bool:
-    blob = " ".join(text_fields).lower()
-    return any(keyword in blob for keyword in COMPUTER_KEYWORDS)
+    blob = " ".join(text_fields)
+    return bool(COMPUTING_STEMS_RE.search(blob) or COMPUTING_ACRONYMS_RE.search(blob))
