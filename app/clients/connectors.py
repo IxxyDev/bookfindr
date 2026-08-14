@@ -320,7 +320,8 @@ def _piter_updated_at(prod: dict) -> date | None:
 def _piter_published_date(prod: dict) -> date | None:
     values = _piter_char_values(prod)
     updated = _piter_updated_at(prod)
-    year_text = (values.get("год") or [""])[0][:4]
+    # most products carry only "год тиража" (print-run year), not "год"
+    year_text = (values.get("год") or values.get("год тиража") or [""])[0][:4]
     if year_text.isdigit():
         return _date_from_year(int(year_text), date.today(), fallback=updated)
     return updated
