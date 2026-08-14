@@ -156,7 +156,7 @@ MIROMA_ROWS = [
     ["Наименование", "Автор", "Год", "ISBN"],
     ["Linux для всех", "Иванов И., Петров П.", 2025, 9785000000001],
     ["", "пусто", 2025, ""],
-    ["Без года", "", "", "978-5-0000-0002-8"],
+    ["Сети без года", "", "", "978-5-0000-0002-8"],
 ]
 
 
@@ -164,7 +164,7 @@ def test_parse_miroma_workbook_xlsx():
     from app.clients.connectors import _parse_miroma_workbook
 
     records = _parse_miroma_workbook(_xlsx_bytes(MIROMA_ROWS))
-    assert [r.title for r in records] == ["Linux для всех", "Без года"]
+    assert [r.title for r in records] == ["Linux для всех", "Сети без года"]
     first = records[0]
     assert first.authors == ["Иванов И.", "Петров П."]
     assert first.published_date == date(2025, 1, 1)
@@ -188,7 +188,7 @@ def test_parse_miroma_workbook_finds_header_after_preamble_and_filters_publisher
     from app.clients.connectors import _parse_miroma_workbook
 
     everything = _parse_miroma_workbook(_xlsx_bytes(MIROMA_DISTRIBUTOR_ROWS))
-    assert [r.title for r in everything] == ["Linux для всех", "Сказки", "Старая книга по сетям"]
+    assert [r.title for r in everything] == ["Linux для всех", "Старая книга по сетям"]
 
     bhv_only = _parse_miroma_workbook(
         _xlsx_bytes(MIROMA_DISTRIBUTOR_ROWS), publisher_names=["БХВ-Петербург", "BHV", "БХВ"]
@@ -211,9 +211,9 @@ def test_parse_miroma_workbook_sorts_isbn_cells_into_13_and_10():
 
     rows = [
         ["Наименование", "ISBN"],
-        ["Два ISBN", "978-5-9775-1234-5, 978-5-9775-1234-6"],
-        ["Только десятизначный", "5-9775-1234-X"],
-        ["Мусор", "12345"],
+        ["Linux: два ISBN", "978-5-9775-1234-5, 978-5-9775-1234-6"],
+        ["Linux: только десятизначный", "5-9775-1234-X"],
+        ["Linux: мусор", "12345"],
     ]
     records = _parse_miroma_workbook(_xlsx_bytes(rows))
     assert [(r.isbn_13, r.isbn_10) for r in records] == [
@@ -221,6 +221,18 @@ def test_parse_miroma_workbook_sorts_isbn_cells_into_13_and_10():
         (None, "597751234X"),
         (None, None),
     ]
+
+
+def test_parse_miroma_workbook_drops_non_computing_titles():
+    from app.clients.connectors import _parse_miroma_workbook
+
+    rows = [
+        ["Наименование", "Издательство"],
+        ["Программирование для начинающих", "БХВ"],
+        ["Сказки народов мира", "БХВ"],
+    ]
+    records = _parse_miroma_workbook(_xlsx_bytes(rows), publisher_names=["БХВ"])
+    assert [r.title for r in records] == ["Программирование для начинающих"]
 
 
 def test_parse_miroma_workbook_zip_with_xlsx():

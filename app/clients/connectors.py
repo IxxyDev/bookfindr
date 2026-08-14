@@ -14,6 +14,7 @@ from selectolax.lexbor import LexborHTMLParser
 from app.core.config import PublisherConfig, get_settings
 from app.services.types import BookRecord
 from app.utils.dates import parse_date
+from app.utils.filters import is_computing
 from app.utils.http import get_with_retries, request_with_retries
 from app.utils.isbn import normalize_isbn10, normalize_isbn13
 
@@ -358,6 +359,9 @@ def _piter_cover(prod: dict) -> str | None:
     return img.get("large_url") or img.get("original_url") or img.get("url")
 
 
+BHV_COMPUTING_CATEGORY = "Компьютеры и программы"
+
+
 async def fetch_bhv_store(publisher: PublisherConfig) -> list[BookRecord]:
     """WooCommerce store feed."""
     settings = get_settings()
@@ -387,7 +391,10 @@ async def fetch_bhv_store(publisher: PublisherConfig) -> list[BookRecord]:
                 published = parse_date(item.get("date_created")) or date.today()
                 if published < cutoff:
                     continue
-                if not _bhv_is_computing(item):
+                categories = [cat.get("name") or "" for cat in item.get("categories") or []]
+                if BHV_COMPUTING_CATEGORY not in categories and not is_computing(
+                    [item.get("name") or "", *categories]
+                ):
                     continue
                 desc = item.get("short_description") or item.get("description") or ""
                 images = item.get("images") or []
@@ -438,13 +445,6 @@ def _find_isbn_in_text(text: str) -> str | None:
         return None
     m = ISBN13_IN_TEXT_RE.search(text)
     return normalize_isbn13(m.group(0)) if m else None
-
-
-def _bhv_is_computing(item: dict) -> bool:
-    categories = " ".join(cat.get("name", "") for cat in item.get("categories", []))
-    text = (item.get("name", "") + " " + categories).lower()
-    keywords = ["комп", "ит", "информ", "програм", "linux", "windows", "сет", "data", "security"]
-    return any(k in text for k in keywords)
 
 
 # ---- Miroma (price-list XLS) ----
@@ -607,7 +607,7 @@ def _parse_miroma_workbook(content: bytes, publisher_names: Sequence[str] = ()) 
                 return row[col].strip() if col is not None and col < len(row) else ""
 
             title = cell(col_title)
-            if not title:
+            if not title or not is_computing([title]):
                 continue
             if wanted and col_publisher is not None:
                 publisher_cell = cell(col_publisher).lower()
