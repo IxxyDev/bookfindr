@@ -221,6 +221,9 @@ async def fetch_dmk_catalog(publisher: PublisherConfig) -> list[BookRecord]:
 
 # ---- Piter (collection JSON) ----
 PITER_URL = "https://www.piter.com/collection/kompyutery-i-internet.json"
+# the whole computing collection is ~11 pages of 100; a bound keeps a broken
+# "count" from paging forever
+PITER_MAX_PAGES = 20
 
 
 async def fetch_piter_catalog(publisher: PublisherConfig) -> list[BookRecord]:
@@ -244,8 +247,8 @@ async def fetch_piter_catalog(publisher: PublisherConfig) -> list[BookRecord]:
             products = data.get("products") or []
             if not products:
                 break
-            for prod in products:
-                published = _piter_published_date(prod)
+            page_dates = [_piter_published_date(prod) for prod in products]
+            for prod, published in zip(products, page_dates, strict=True):
                 if not published:
                     continue
                 if published < cutoff:
@@ -274,6 +277,11 @@ async def fetch_piter_catalog(publisher: PublisherConfig) -> list[BookRecord]:
                 if len(results) >= settings.max_results_per_source:
                     return results
             if len(products) < per or (total and page * per >= total):
+                break
+            # sorted newest first: a page dated wholly before the window ends the catalog
+            if all(published and published < cutoff for published in page_dates):
+                break
+            if page >= PITER_MAX_PAGES:
                 break
             page += 1
     return results
