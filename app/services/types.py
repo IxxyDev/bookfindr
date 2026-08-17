@@ -20,6 +20,8 @@ class BookRecord:
     page_count: int | None = None
     print_type: str | None = None
     published_date: date | None = None
+    # True when published_date is the day we first saw the book, not a real date
+    published_date_is_sighting: bool = False
     cover_url: str | None = None
     info_url: str | None = None
     raw: dict[str, Any] = field(default_factory=dict)

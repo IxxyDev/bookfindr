@@ -372,11 +372,13 @@ BHV_COMPUTING_CATEGORY = "Компьютеры и программы"
 
 
 async def fetch_bhv_store(publisher: PublisherConfig) -> list[BookRecord]:
-    """WooCommerce store feed."""
+    """WooCommerce Store API feed, newest first.
+
+    The Store API exposes no product date, so records are dated by first sighting.
+    """
     settings = get_settings()
     timeout = httpx.Timeout(settings.request_timeout, connect=settings.request_timeout)
     headers = {"User-Agent": settings.user_agent}
-    cutoff = date.today() - timedelta(days=settings.window_days)
     page = 1
     per_page = 50
     max_pages = 3
@@ -397,9 +399,6 @@ async def fetch_bhv_store(publisher: PublisherConfig) -> list[BookRecord]:
                 # WooCommerce returns an error object instead of a list on failure
                 break
             for item in items:
-                published = parse_date(item.get("date_created")) or date.today()
-                if published < cutoff:
-                    continue
                 categories = [cat.get("name") or "" for cat in item.get("categories") or []]
                 if BHV_COMPUTING_CATEGORY not in categories and not is_computing(
                     [item.get("name") or "", *categories]
@@ -428,7 +427,8 @@ async def fetch_bhv_store(publisher: PublisherConfig) -> list[BookRecord]:
                     isbn_13=_find_isbn_in_text(desc),
                     page_count=None,
                     print_type="book",
-                    published_date=published,
+                    published_date=date.today(),
+                    published_date_is_sighting=True,
                     cover_url=cover_url,
                     info_url=item.get("permalink"),
                     raw=item,

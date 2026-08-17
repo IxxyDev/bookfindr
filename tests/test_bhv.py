@@ -1,3 +1,5 @@
+from datetime import date
+
 import httpx
 
 from app.clients.connectors import fetch_bhv_store
@@ -29,3 +31,15 @@ async def test_computing_category_or_computing_title_is_kept(monkeypatch):
     records = await fetch_bhv_store(PUBLISHER)
 
     assert [r.source_key for r in records] == ["1", "2"]
+
+
+async def test_records_are_dated_by_first_sighting(monkeypatch):
+    product = _product(1, "Самоучитель", "Компьютеры и программы")
+    product["description"] = "<p>ISBN 978-5-9775-1234-5</p>"
+    install_mock_transport(monkeypatch, _serve([product]))
+
+    [record] = await fetch_bhv_store(PUBLISHER)
+
+    assert record.published_date == date.today()
+    assert record.published_date_is_sighting is True
+    assert record.isbn_13 == "9785977512345"
