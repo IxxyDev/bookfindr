@@ -197,7 +197,9 @@ def test_parse_miroma_workbook_finds_header_after_preamble_and_filters_publisher
     assert bhv_only[0].page_count == 320
     assert bhv_only[0].isbn_13 == "9785000000001"
     assert bhv_only[0].published_date == date.today()  # current year: first sighting
+    assert bhv_only[0].published_date_is_sighting is True
     assert bhv_only[1].published_date == date(2020, 1, 1)
+    assert bhv_only[1].published_date_is_sighting is False
     assert bhv_only[0].raw["publisher"] == "БХВ (г. Санкт-Петербург)"
 
     nothing = _parse_miroma_workbook(

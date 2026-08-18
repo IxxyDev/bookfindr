@@ -206,6 +206,7 @@ async def fetch_dmk_catalog(publisher: PublisherConfig) -> list[BookRecord]:
                         isbn_13=c["isbn_13"],
                         # cards carry no publish date; record first sighting
                         published_date=date.today(),
+                        published_date_is_sighting=True,
                         cover_url=c["cover_url"],
                         info_url=c["info_url"],
                         raw={"href": c["info_url"]},
@@ -639,6 +640,8 @@ def _parse_miroma_workbook(content: bytes, publisher_names: Sequence[str] = ()) 
                     language="ru",
                     subjects=["computers"],
                     published_date=published,
+                    # a current-year row has no fallback date: it is dated today
+                    published_date_is_sighting=published == today,
                     isbn_13=isbn_13,
                     isbn_10=isbn_10,
                     page_count=int(pages_text) if pages_text.isdigit() else None,
