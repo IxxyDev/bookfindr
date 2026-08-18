@@ -331,13 +331,13 @@ def test_date_from_year_current_year_uses_fallback_or_today():
 
 
 def test_piter_isbn_is_stored_without_hyphens():
-    from app.clients.connectors import _piter_isbn
+    from app.clients.connectors import _insales_char_values, _insales_isbn
 
     prod = {
         "properties": [{"id": 7, "title": "ISBN"}],
         "characteristics": [{"property_id": 7, "title": "978-5-4461-2345-6"}],
     }
-    assert _piter_isbn(prod) == "9785446123456"
+    assert _insales_isbn(_insales_char_values(prod)) == "9785446123456"
 
 
 def _piter_product(year: str | None, updated_at: str | None) -> dict:
@@ -358,14 +358,14 @@ def test_piter_published_date(monkeypatch):
             return date(2026, 9, 20)
 
     monkeypatch.setattr(connectors, "date", _Today)
-    current_year = connectors._piter_published_date(_piter_product("2026", "2026-09-01T10:00:00Z"))
+
+    def published(prod: dict) -> date | None:
+        return connectors._insales_published_date(prod, connectors._insales_char_values(prod))
+
+    current_year = published(_piter_product("2026", "2026-09-01T10:00:00Z"))
     assert current_year == date(2026, 9, 1)
-    assert connectors._piter_published_date(_piter_product("2026", None)) == date(2026, 9, 20)
-    assert connectors._piter_published_date(_piter_product("2024", "2026-09-01T10:00:00Z")) == date(
-        2024, 1, 1
-    )
-    assert connectors._piter_published_date(_piter_product("2027", None)) == date(2027, 1, 1)
-    assert connectors._piter_published_date(_piter_product(None, "2026-09-01T10:00:00Z")) == date(
-        2026, 9, 1
-    )
-    assert connectors._piter_published_date(_piter_product(None, None)) is None
+    assert published(_piter_product("2026", None)) == date(2026, 9, 20)
+    assert published(_piter_product("2024", "2026-09-01T10:00:00Z")) == date(2024, 1, 1)
+    assert published(_piter_product("2027", None)) == date(2027, 1, 1)
+    assert published(_piter_product(None, "2026-09-01T10:00:00Z")) == date(2026, 9, 1)
+    assert published(_piter_product(None, None)) is None

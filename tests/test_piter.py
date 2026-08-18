@@ -42,14 +42,16 @@ def _serve(page_products):
     return handler
 
 
+def _published(prod: dict) -> date | None:
+    return connectors._insales_published_date(prod, connectors._insales_char_values(prod))
+
+
 def test_print_year_dates_a_product_without_a_publication_year():
-    assert connectors._piter_published_date(_product(1, print_year=2015)) == date(2015, 1, 1)
+    assert _published(_product(1, print_year=2015)) == date(2015, 1, 1)
 
 
 def test_publication_year_wins_over_print_year():
-    assert connectors._piter_published_date(_product(1, year=2014, print_year=2015)) == date(
-        2014, 1, 1
-    )
+    assert _published(_product(1, year=2014, print_year=2015)) == date(2014, 1, 1)
 
 
 async def test_paging_stops_at_a_page_of_only_old_years(monkeypatch):

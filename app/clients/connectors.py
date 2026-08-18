@@ -220,87 +220,116 @@ async def fetch_dmk_catalog(publisher: PublisherConfig) -> list[BookRecord]:
     return results
 
 
-# ---- Piter (collection JSON) ----
-PITER_URL = "https://www.piter.com/collection/kompyutery-i-internet.json"
+# ---- InSales collection JSON (Piter, NiT) ----
+INSALES_PER_PAGE = 100  # the largest page InSales serves
+PITER_SITE = "https://www.piter.com"
+PITER_URL = PITER_SITE + "/collection/kompyutery-i-internet.json"
 # the whole computing collection is ~11 pages of 100; a bound keeps a broken
 # "count" from paging forever
 PITER_MAX_PAGES = 20
+NIT_SITE = "https://nit.com.ru"
+NIT_URL = NIT_SITE + "/collection/komp_lit.json"
+NIT_MAX_PAGES = 20
+# characteristic names (lowercased) differ between the two shops
+INSALES_AUTHOR_KEYS = ["автор(ы)", "автор"]
+INSALES_YEAR_KEYS = ["год", "год издания", "год тиража"]
+INSALES_PAGES_KEYS = ["страниц", "количество страниц"]
 
 
 async def fetch_piter_catalog(publisher: PublisherConfig) -> list[BookRecord]:
+    return await fetch_insales_collection(
+        PITER_URL,
+        publisher,
+        source="piter_json",
+        site=PITER_SITE,
+        max_pages=PITER_MAX_PAGES,
+        newest_first=True,
+    )
+
+
+async def fetch_nit_catalog(publisher: PublisherConfig) -> list[BookRecord]:
+    return await fetch_insales_collection(
+        NIT_URL, publisher, source="nit_json", site=NIT_SITE, max_pages=NIT_MAX_PAGES
+    )
+
+
+async def fetch_insales_collection(
+    url: str,
+    publisher: PublisherConfig,
+    source: str,
+    site: str,
+    max_pages: int,
+    newest_first: bool = False,
+) -> list[BookRecord]:
     settings = get_settings()
     timeout = httpx.Timeout(settings.request_timeout, connect=settings.request_timeout)
     headers = {"User-Agent": settings.user_agent}
     cutoff = date.today() - timedelta(days=settings.window_days)
-
     results: list[BookRecord] = []
-    page = 1
-    per = 100
-    total = None
 
     async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
-        while True:
-            params = {"page": page, "per": per, "sort": "created_at_desc"}
-            resp = await get_with_retries(client, PITER_URL, params=params)
+        for page in range(1, max_pages + 1):
+            page_params = {"page": page, "per": INSALES_PER_PAGE}
+            if newest_first:
+                page_params["sort"] = "created_at_desc"
+            resp = await get_with_retries(client, url, params=page_params)
             data = resp.json()
-            if total is None:
-                total = data.get("count", 0)
             products = data.get("products") or []
             if not products:
                 break
-            page_dates = [_piter_published_date(prod) for prod in products]
-            for prod, published in zip(products, page_dates, strict=True):
-                if not published:
+            records = [_insales_record(prod, publisher, source, site) for prod in products]
+            for record in records:
+                if not record.published_date or record.published_date < cutoff:
                     continue
-                if published < cutoff:
-                    continue
-                record = BookRecord(
-                    source="piter_json",
-                    source_key=str(prod.get("id")),
-                    publisher_id=publisher.id,
-                    title=prod.get("title") or "Untitled",
-                    subtitle=None,
-                    authors=_piter_authors(prod),
-                    language="ru",
-                    subjects=["computers"],
-                    topics=[],
-                    description=prod.get("short_description"),
-                    isbn_10=None,
-                    isbn_13=_piter_isbn(prod),
-                    page_count=_piter_pages(prod),
-                    print_type="book",
-                    published_date=published,
-                    cover_url=_piter_cover(prod),
-                    info_url="https://www.piter.com" + prod.get("url", ""),
-                    raw=prod,
-                )
                 results.append(record)
                 if len(results) >= settings.max_results_per_source:
                     return results
-            if len(products) < per or (total and page * per >= total):
+            total = data.get("count") or 0
+            if len(products) < INSALES_PER_PAGE or (total and page * INSALES_PER_PAGE >= total):
                 break
-            # sorted newest first: a page dated wholly before the window ends the catalog
-            if all(published and published < cutoff for published in page_dates):
+            # only a newest-first listing lets a page dated before the window end it
+            if newest_first and all(
+                r.published_date and r.published_date < cutoff for r in records
+            ):
                 break
-            if page >= PITER_MAX_PAGES:
-                break
-            page += 1
     return results
 
 
-def _piter_prop_map(prod: dict) -> dict[int, str]:
-    return {p["id"]: p.get("title") for p in prod.get("properties", [])}
+def _insales_record(prod: dict, publisher: PublisherConfig, source: str, site: str) -> BookRecord:
+    values = _insales_char_values(prod)
+    return BookRecord(
+        source=source,
+        source_key=str(prod.get("id")),
+        publisher_id=publisher.id,
+        title=prod.get("title") or "Untitled",
+        authors=_insales_authors(values),
+        language="ru",
+        subjects=["computers"],
+        description=prod.get("short_description"),
+        isbn_13=_insales_isbn(values),
+        page_count=_insales_pages(values),
+        print_type="book",
+        published_date=_insales_published_date(prod, values),
+        cover_url=_insales_cover(prod),
+        info_url=site + prod.get("url", ""),
+        raw=prod,
+    )
 
 
-def _piter_char_values(prod: dict) -> dict[str, list[str]]:
-    prop_map = _piter_prop_map(prod)
+def _insales_char_values(prod: dict) -> dict[str, list[str]]:
+    """Characteristic values keyed by lowercased property title."""
+    property_titles = {p["id"]: p.get("title") for p in prod.get("properties", [])}
     values: dict[str, list[str]] = {}
     for ch in prod.get("characteristics") or []:
-        name = prop_map.get(ch.get("property_id"))
+        name = property_titles.get(ch.get("property_id"))
         if not name:
             continue
         values.setdefault(name.lower(), []).append(ch.get("title") or "")
     return values
+
+
+def _first_values(values: dict[str, list[str]], keys: list[str]) -> list[str]:
+    return next((values[key] for key in keys if values.get(key)), [])
 
 
 def _date_from_year(year: int, today: date, fallback: date | None = None) -> date:
@@ -316,7 +345,7 @@ def _date_from_year(year: int, today: date, fallback: date | None = None) -> dat
     return date(year, 1, 1)
 
 
-def _piter_updated_at(prod: dict) -> date | None:
+def _insales_updated_at(prod: dict) -> date | None:
     updated_at = prod.get("updated_at")
     if not updated_at:
         return None
@@ -326,45 +355,30 @@ def _piter_updated_at(prod: dict) -> date | None:
         return None
 
 
-def _piter_published_date(prod: dict) -> date | None:
-    values = _piter_char_values(prod)
-    updated = _piter_updated_at(prod)
-    # most products carry only "год тиража" (print-run year), not "год"
-    year_text = (values.get("год") or values.get("год тиража") or [""])[0][:4]
+def _insales_published_date(prod: dict, values: dict[str, list[str]]) -> date | None:
+    updated = _insales_updated_at(prod)
+    # most Piter products carry only "год тиража" (print-run year), not "год"
+    year_text = (_first_values(values, INSALES_YEAR_KEYS) or [""])[0][:4]
     if year_text.isdigit():
         return _date_from_year(int(year_text), date.today(), fallback=updated)
     return updated
 
 
-def _piter_authors(prod: dict) -> list[str]:
-    values = _piter_char_values(prod)
-    authors = values.get("автор(ы)") or values.get("автор") or []
-    if authors:
-        return [a.strip() for val in authors for a in val.split(",") if a.strip()]
-    return []
+def _insales_authors(values: dict[str, list[str]]) -> list[str]:
+    authors = _first_values(values, INSALES_AUTHOR_KEYS)
+    return [a.strip() for val in authors for a in val.split(",") if a.strip()]
 
 
-def _piter_isbn(prod: dict) -> str | None:
-    values = _piter_char_values(prod)
-    for value in values.get("isbn") or []:
-        isbn = normalize_isbn13(value)
-        if isbn:
-            return isbn
-    return None
+def _insales_isbn(values: dict[str, list[str]]) -> str | None:
+    return next((i for i in map(normalize_isbn13, values.get("isbn") or []) if i), None)
 
 
-def _piter_pages(prod: dict) -> int | None:
-    values = _piter_char_values(prod)
-    if "страниц" in values:
-        for val in values["страниц"]:
-            try:
-                return int(val)
-            except ValueError:
-                continue
-    return None
+def _insales_pages(values: dict[str, list[str]]) -> int | None:
+    pages = _first_values(values, INSALES_PAGES_KEYS)
+    return next((int(val) for val in pages if val.isdigit()), None)
 
 
-def _piter_cover(prod: dict) -> str | None:
+def _insales_cover(prod: dict) -> str | None:
     img = prod.get("first_image") or {}
     return img.get("large_url") or img.get("original_url") or img.get("url")
 
@@ -649,54 +663,6 @@ def _parse_miroma_workbook(content: bytes, publisher_names: Sequence[str] = ()) 
                 )
             )
     return records
-
-
-# ---- NiT (Insales JSON) ----
-async def fetch_nit_catalog(publisher: PublisherConfig) -> list[BookRecord]:
-    settings = get_settings()
-    timeout = httpx.Timeout(settings.request_timeout, connect=settings.request_timeout)
-    headers = {"User-Agent": settings.user_agent}
-    base = "https://nit.com.ru/collection/komp_lit.json"
-    page = 1
-    per = 100
-    results: list[BookRecord] = []
-    cutoff = date.today() - timedelta(days=settings.window_days)
-    async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
-        while True:
-            try:
-                resp = await get_with_retries(client, base, params={"page": page, "per": per})
-            except httpx.HTTPStatusError:
-                break
-            data = resp.json()
-            products = data.get("products") or []
-            if not products:
-                break
-            for prod in products:
-                published = parse_date(prod.get("updated_at")) or date.today()
-                if published < cutoff:
-                    continue
-                record = BookRecord(
-                    source="nit_json",
-                    source_key=str(prod.get("id")),
-                    publisher_id=publisher.id,
-                    title=prod.get("title") or "Untitled",
-                    authors=[],
-                    language="ru",
-                    subjects=["computers"],
-                    description=prod.get("short_description"),
-                    isbn_13=None,
-                    published_date=published,
-                    cover_url=(prod.get("first_image") or {}).get("large_url"),
-                    info_url="https://nit.com.ru" + prod.get("url", ""),
-                    raw=prod,
-                )
-                results.append(record)
-                if len(results) >= settings.max_results_per_source:
-                    return results
-            if len(products) < per:
-                break
-            page += 1
-    return results
 
 
 def _find_col(headers: list[str], keys: list[str]) -> int | None:
