@@ -6,7 +6,7 @@ import httpx
 
 from app.core.config import PublisherConfig, Settings, get_settings
 from app.services.types import BookRecord
-from app.utils.dates import parse_date
+from app.utils.dates import is_year_only, parse_published_date
 from app.utils.filters import is_computing as _is_computing_check
 from app.utils.http import get_with_retries
 from app.utils.isbn import normalize_isbn10, normalize_isbn13
@@ -47,7 +47,8 @@ async def fetch_open_library(
 
     timeout = httpx.Timeout(cfg.request_timeout, connect=cfg.request_timeout)
     headers = {"User-Agent": cfg.user_agent}
-    cutoff = date.today() - timedelta(days=window_days or cfg.window_days)
+    today = date.today()
+    cutoff = today - timedelta(days=window_days or cfg.window_days)
     results: list[BookRecord] = []
 
     publishers = publisher.open_library.publishers or [publisher.name]
@@ -76,7 +77,7 @@ async def fetch_open_library(
                 added_this_page = 0
                 page_too_old = False
                 for doc in docs:
-                    published = _doc_published(doc)
+                    published, is_sighting = _doc_published(doc, today)
                     if not published:
                         continue
                     if published < cutoff:
@@ -106,6 +107,7 @@ async def fetch_open_library(
                         page_count=doc.get("number_of_pages_median"),
                         print_type=None,
                         published_date=published,
+                        published_date_is_sighting=is_sighting,
                         cover_url=_cover_url(doc.get("cover_i")),
                         info_url=_info_url(doc.get("key")),
                         raw=doc,
@@ -123,23 +125,22 @@ async def fetch_open_library(
     return results
 
 
-def _doc_published(doc: dict) -> date | None:
-    published = _parse_publish_date(doc.get("publish_date"))
-    if published:
-        return published
-    year = doc.get("first_publish_year")
-    return parse_date(str(year)) if year else None
+def _doc_published(doc: dict, today: date) -> tuple[date | None, bool]:
+    """(latest publish_date, whether it only stands in for a year by first sighting)."""
+    dated = _dated_values(doc.get("publish_date") or [], today)
+    if not dated and doc.get("first_publish_year"):
+        dated = _dated_values([str(doc["first_publish_year"])], today)
+    if not dated:
+        return None, False
+    # on equal dates prefer a real one over a year-only stand-in
+    published, year_only = max(dated, key=lambda pair: (pair[0], not pair[1]))
+    return published, year_only and published == today
 
 
-def _parse_publish_date(values: list | None) -> date | None:
-    if not values:
-        return None
-    parsed_dates = []
-    for val in values:
-        parsed = parse_date(val)
-        if parsed:
-            parsed_dates.append(parsed)
-    return max(parsed_dates) if parsed_dates else None
+def _dated_values(values: list[str], today: date) -> list[tuple[date, bool]]:
+    """(date, value is year-only) for every value that parses."""
+    parsed = [(parse_published_date(value, today), is_year_only(value)) for value in values]
+    return [(published, year_only) for published, year_only in parsed if published]
 
 
 def _first_valid(codes: list[str] | None, normalize: Callable[[str], str | None]) -> str | None:

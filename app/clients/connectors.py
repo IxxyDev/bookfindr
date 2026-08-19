@@ -13,7 +13,7 @@ from selectolax.lexbor import LexborHTMLParser
 
 from app.core.config import PublisherConfig, get_settings
 from app.services.types import BookRecord
-from app.utils.dates import parse_date
+from app.utils.dates import date_from_year, parse_date
 from app.utils.filters import is_computing
 from app.utils.http import get_with_retries, request_with_retries
 from app.utils.isbn import normalize_isbn10, normalize_isbn13
@@ -297,6 +297,10 @@ async def fetch_insales_collection(
 
 def _insales_record(prod: dict, publisher: PublisherConfig, source: str, site: str) -> BookRecord:
     values = _insales_char_values(prod)
+    published = _insales_published_date(prod, values)
+    today = date.today()
+    # dated today though the feed did not say so: date_from_year fell back to first sighting
+    is_sighting = published == today and _insales_updated_at(prod) != today
     return BookRecord(
         source=source,
         source_key=str(prod.get("id")),
@@ -309,7 +313,8 @@ def _insales_record(prod: dict, publisher: PublisherConfig, source: str, site: s
         isbn_13=_insales_isbn(values),
         page_count=_insales_pages(values),
         print_type="book",
-        published_date=_insales_published_date(prod, values),
+        published_date=published,
+        published_date_is_sighting=is_sighting,
         cover_url=_insales_cover(prod),
         info_url=site + prod.get("url", ""),
         raw=prod,
@@ -332,19 +337,6 @@ def _first_values(values: dict[str, list[str]], keys: list[str]) -> list[str]:
     return next((values[key] for key in keys if values.get(key)), [])
 
 
-def _date_from_year(year: int, today: date, fallback: date | None = None) -> date:
-    """Turn a year-only publication date into something the window filter can use.
-
-    Sources such as Piter and price lists only say "2026". Dating every such book
-    1 January would drop it as "older than the window" for most of the year, so a
-    current-year book is dated by ``fallback`` (e.g. the feed's updated_at) or by
-    first sighting. Past and future years keep 1 January and are filtered as usual.
-    """
-    if year == today.year:
-        return fallback or today
-    return date(year, 1, 1)
-
-
 def _insales_updated_at(prod: dict) -> date | None:
     updated_at = prod.get("updated_at")
     if not updated_at:
@@ -360,7 +352,7 @@ def _insales_published_date(prod: dict, values: dict[str, list[str]]) -> date | 
     # most Piter products carry only "год тиража" (print-run year), not "год"
     year_text = (_first_values(values, INSALES_YEAR_KEYS) or [""])[0][:4]
     if year_text.isdigit():
-        return _date_from_year(int(year_text), date.today(), fallback=updated)
+        return date_from_year(int(year_text), date.today(), fallback=updated)
     return updated
 
 
@@ -641,7 +633,7 @@ def _parse_miroma_workbook(content: bytes, publisher_names: Sequence[str] = ()) 
             published = None
             year_text = cell(col_year)[:4]
             if year_text.isdigit():
-                published = _date_from_year(int(year_text), today)
+                published = date_from_year(int(year_text), today)
             pages_text = cell(col_pages)
             isbn_13, isbn_10 = _isbns_from_cell(cell(col_isbn))
             records.append(
@@ -748,10 +740,7 @@ def _packt_published(card) -> date | None:
             return parsed
     year_attr = card.attributes.get("data-analytics-item-publication-year")
     if year_attr and year_attr.isdigit():
-        try:
-            return date(int(year_attr), 1, 1)
-        except ValueError:
-            return None
+        return date_from_year(int(year_attr), date.today())
     return None
 
 

@@ -52,11 +52,10 @@ async def test_first_publish_year_is_the_fallback_date(monkeypatch):
     doc = _doc("/works/OL2W", first_publish_year=date.today().year)
     install_mock_transport(monkeypatch, _first_page_only([doc]))
 
-    records = await fetch_open_library(_publisher(), Settings(window_days=3650))
+    [record] = await fetch_open_library(_publisher(), Settings())
 
-    assert len(records) == 1
-    assert records[0].published_date is not None
-    assert records[0].published_date.year == date.today().year
+    assert record.published_date == date.today()
+    assert record.published_date_is_sighting is True
 
 
 async def test_doc_without_any_date_is_skipped(monkeypatch):
@@ -77,3 +76,13 @@ async def test_isbns_are_validated_not_picked_by_length(monkeypatch):
     records = await fetch_open_library(_publisher(), Settings())
 
     assert (records[0].isbn_13, records[0].isbn_10) == ("9781484212345", "148421234X")
+
+
+async def test_year_only_publish_date_of_the_current_year_is_a_sighting(monkeypatch):
+    doc = _doc("/works/OL5W", publish_date=[str(date.today().year)])
+    install_mock_transport(monkeypatch, _first_page_only([doc]))
+
+    [record] = await fetch_open_library(_publisher(), Settings())
+
+    assert record.published_date == date.today()
+    assert record.published_date_is_sighting is True

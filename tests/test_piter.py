@@ -71,3 +71,14 @@ async def test_paging_stops_after_max_pages(monkeypatch):
 
     assert len(sent) == 1
     assert len(records) == 100
+
+
+def test_current_year_without_updated_at_is_a_sighting():
+    prod = _product(1, year=date.today().year)
+    record = connectors._insales_record(prod, PUBLISHER, "piter_json", connectors.PITER_SITE)
+    assert record.published_date_is_sighting is False  # dated by updated_at
+
+    del prod["updated_at"]
+    record = connectors._insales_record(prod, PUBLISHER, "piter_json", connectors.PITER_SITE)
+    assert record.published_date == date.today()
+    assert record.published_date_is_sighting is True

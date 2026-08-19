@@ -5,7 +5,7 @@ import httpx
 
 from app.core.config import PublisherConfig, Settings, get_settings
 from app.services.types import BookRecord
-from app.utils.dates import parse_date
+from app.utils.dates import is_year_only, parse_published_date
 from app.utils.filters import is_computing as _is_computing_check
 from app.utils.http import get_with_retries
 from app.utils.isbn import normalize_isbn10, normalize_isbn13
@@ -31,7 +31,8 @@ async def fetch_google_books(
     if cfg.google_books_api_key:
         # a header keeps the key out of URLs, which end up in logs and fetch_runs.error
         headers["X-Goog-Api-Key"] = cfg.google_books_api_key
-    cutoff = date.today() - timedelta(days=window_days or cfg.window_days)
+    today = date.today()
+    cutoff = today - timedelta(days=window_days or cfg.window_days)
     results: list[BookRecord] = []
 
     inpublishers = publisher.google_books.inpublishers or [publisher.name]
@@ -59,7 +60,9 @@ async def fetch_google_books(
                     page_too_old = False
                     for item in items:
                         volume = item.get("volumeInfo", {})
-                        published = parse_date(volume.get("publishedDate"))
+                        raw_date = volume.get("publishedDate")
+                        published = parse_published_date(raw_date, today)
+                        is_sighting = is_year_only(raw_date) and published == today
                         if not published:
                             continue
                         if published < cutoff:
@@ -93,6 +96,7 @@ async def fetch_google_books(
                             page_count=volume.get("pageCount"),
                             print_type=volume.get("printType"),
                             published_date=published,
+                            published_date_is_sighting=is_sighting,
                             cover_url=_get_cover(volume),
                             info_url=volume.get("infoLink"),
                             raw=item,

@@ -96,3 +96,14 @@ async def test_isbns_are_normalized(monkeypatch):
     records = await fetch_google_books(_publisher(), _settings())
 
     assert (records[0].isbn_13, records[0].isbn_10) == ("9781484212345", None)
+
+
+async def test_year_only_date_of_the_current_year_is_a_sighting(monkeypatch):
+    volume = _volume("v3", date.today())
+    volume["volumeInfo"]["publishedDate"] = str(date.today().year)
+    install_mock_transport(monkeypatch, _first_page_only([volume]))
+
+    [record] = await fetch_google_books(_publisher(), _settings())
+
+    assert record.published_date == date.today()
+    assert record.published_date_is_sighting is True

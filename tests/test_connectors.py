@@ -174,12 +174,21 @@ def test_parse_miroma_workbook_xlsx():
     assert records[1].isbn_13 == "9785000000028"  # hyphens stripped
 
 
+CURRENT_YEAR = date.today().year
 MIROMA_DISTRIBUTOR_ROWS = [
     ["Тел.: 8 (812) 251-03-05", "", "", "", "", "Сумма заказа:"],
     ["", "ЗАКАЗАТЬ АКТУАЛЬНЫЙ ПРАЙС", "www.miromabook.ru/", "", "", ""],
     ["", "Название", "Автор", "Издательство", "Год издания", "Кол-во страниц", "ISBN"],
-    ["", "Linux для всех", "Иванов И.", "БХВ (г. Санкт-Петербург)", 2026, 320, "9785000000001"],
-    ["", "Сказки", "Пушкин А.С.", "Эксмо (г. Москва)", 2026, 100, "9785000000002"],
+    [
+        "",
+        "Linux для всех",
+        "Иванов И.",
+        "БХВ (г. Санкт-Петербург)",
+        CURRENT_YEAR,
+        320,
+        "9785000000001",
+    ],
+    ["", "Сказки", "Пушкин А.С.", "Эксмо (г. Москва)", CURRENT_YEAR, 100, "9785000000002"],
     ["", "Старая книга по сетям", "Петров П.", "БХВ (г. Санкт-Петербург)", 2020, "", ""],
 ]
 
@@ -320,16 +329,6 @@ def test_parse_miroma_workbook_enforces_size_budget(monkeypatch):
     assert connectors._parse_miroma_workbook(payload) == []
 
 
-def test_date_from_year_current_year_uses_fallback_or_today():
-    from app.clients.connectors import _date_from_year
-
-    today = date(2026, 9, 20)
-    assert _date_from_year(2026, today) == today
-    assert _date_from_year(2026, today, fallback=date(2026, 8, 1)) == date(2026, 8, 1)
-    assert _date_from_year(2025, today) == date(2025, 1, 1)
-    assert _date_from_year(2027, today, fallback=date(2026, 8, 1)) == date(2027, 1, 1)
-
-
 def test_piter_isbn_is_stored_without_hyphens():
     from app.clients.connectors import _insales_char_values, _insales_isbn
 
@@ -366,6 +365,6 @@ def test_piter_published_date(monkeypatch):
     assert current_year == date(2026, 9, 1)
     assert published(_piter_product("2026", None)) == date(2026, 9, 20)
     assert published(_piter_product("2024", "2026-09-01T10:00:00Z")) == date(2024, 1, 1)
-    assert published(_piter_product("2027", None)) == date(2027, 1, 1)
+    assert published(_piter_product("2027", None)) == date(2026, 9, 20)  # next year: current
     assert published(_piter_product(None, "2026-09-01T10:00:00Z")) == date(2026, 9, 1)
     assert published(_piter_product(None, None)) is None
