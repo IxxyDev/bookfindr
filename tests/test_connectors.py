@@ -169,7 +169,7 @@ def test_parse_miroma_workbook_xlsx():
     assert first.authors == ["Иванов И.", "Петров П."]
     assert first.published_date == date(2025, 1, 1)
     assert first.isbn_13 == "9785000000001"
-    assert first.source_key == "Прайс-1"
+    assert first.source_key == "9785000000001"
     assert records[1].published_date is None
     assert records[1].isbn_13 == "9785000000028"  # hyphens stripped
 
@@ -300,7 +300,7 @@ def test_parse_miroma_workbook_xls_via_xlrd(monkeypatch):
     assert records[0].title == "Книга про сети"
     assert records[0].published_date == date(2025, 1, 1)
     assert records[0].isbn_13 == "9785000000001"
-    assert records[0].source_key == "Лист1-1"
+    assert records[0].source_key == "9785000000001"
 
 
 def test_parse_miroma_workbook_rejects_nested_archives():
