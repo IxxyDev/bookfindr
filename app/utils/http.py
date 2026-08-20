@@ -1,21 +1,37 @@
 import asyncio
 import logging
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 
 import httpx
 
 logger = logging.getLogger(__name__)
 
 RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+# a server may ask for hours; waiting that long would hold the sync lock all day
+MAX_RETRY_AFTER_SECONDS = 60.0
 
 
 def _retry_delay(response: httpx.Response, attempt: int, backoff: float) -> float:
-    retry_after = response.headers.get("Retry-After")
-    if retry_after:
-        try:
-            return max(float(retry_after), 0.0)
-        except ValueError:
-            pass
-    return backoff * (2**attempt)
+    retry_after = _retry_after_seconds(response.headers.get("Retry-After"))
+    if retry_after is None:
+        return backoff * (2**attempt)
+    return min(max(retry_after, 0.0), MAX_RETRY_AFTER_SECONDS)
+
+
+def _retry_after_seconds(value: str | None) -> float | None:
+    """Retry-After as seconds: either delta-seconds or an HTTP-date."""
+    if not value:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        pass
+    try:
+        retry_at = parsedate_to_datetime(value)
+    except TypeError, ValueError:
+        return None
+    return (retry_at - datetime.now(UTC)).total_seconds()
 
 
 async def request_with_retries(
@@ -31,6 +47,8 @@ async def request_with_retries(
 
     Raises the last error (or calls raise_for_status) once retries are exhausted.
     """
+    if retries < 0:
+        raise ValueError(f"retries must be >= 0, got {retries}")
     last_response: httpx.Response | None = None
     for attempt in range(retries + 1):
         try:
@@ -52,7 +70,9 @@ async def request_with_retries(
             continue
         response.raise_for_status()
         return response
-    assert last_response is not None
+    # the loop runs at least once and only falls through after a retryable response
+    if last_response is None:
+        raise RuntimeError(f"{method} {url}: no response after {retries + 1} attempts")
     last_response.raise_for_status()
     return last_response
 
