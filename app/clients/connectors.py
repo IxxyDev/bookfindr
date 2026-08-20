@@ -7,7 +7,7 @@ import zipfile
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import date, datetime, timedelta
 from pathlib import PurePosixPath
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import httpx
 import openpyxl
@@ -467,14 +467,30 @@ def _find_isbn_in_text(text: str) -> str | None:
 
 
 # ---- Miroma (price-list XLS) ----
-MIROMA_BASE = "https://miromabook.ru"
+MIROMA_LISTING_URL = "https://miromabook.ru/prays-listy/"
+# the full price list is a few MB; anything far larger is not a price list
+MIROMA_MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024
 
-PRICE_LINK_RE = re.compile(r'href="([^"]+\.(?:xls|xlsx|zip))"', re.I)
+PRICE_LINK_RE = re.compile(r"""href=["']([^"']+\.(?:xls|xlsx|zip))["']""", re.I)
 
 
-def _extract_price_links(html_text: str, base: str) -> list[str]:
-    links = PRICE_LINK_RE.findall(html_text)
-    return [link if link.startswith("http") else base + link for link in links]
+def _extract_price_links(html_text: str, page_url: str) -> list[str]:
+    links = (urljoin(page_url, link) for link in PRICE_LINK_RE.findall(html_text))
+    return list(dict.fromkeys(links))
+
+
+async def _download_capped(client: httpx.AsyncClient, url: str, max_bytes: int) -> bytes:
+    """GET ``url`` but stop reading once it exceeds ``max_bytes``."""
+    async with client.stream("GET", url) as resp:
+        resp.raise_for_status()
+        chunks: list[bytes] = []
+        received = 0
+        async for chunk in resp.aiter_bytes():
+            received += len(chunk)
+            if received > max_bytes:
+                raise ValueError(f"{url} is larger than {max_bytes} bytes")
+            chunks.append(chunk)
+    return b"".join(chunks)
 
 
 async def fetch_miroma_price(publisher: PublisherConfig) -> list[BookRecord]:
@@ -483,10 +499,10 @@ async def fetch_miroma_price(publisher: PublisherConfig) -> list[BookRecord]:
     headers = {"User-Agent": settings.user_agent}
     results: list[BookRecord] = []
     async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
-        listing = await get_with_retries(client, f"{MIROMA_BASE}/prays-listy/")
-        for url in _extract_price_links(listing.text, MIROMA_BASE):
+        listing = await get_with_retries(client, MIROMA_LISTING_URL)
+        for url in _extract_price_links(listing.text, MIROMA_LISTING_URL):
             try:
-                content = (await get_with_retries(client, url)).content
+                content = await _download_capped(client, url, MIROMA_MAX_DOWNLOAD_BYTES)
                 # CPU-bound parsing of a third-party file: keep it off the event loop
                 book_list = await asyncio.to_thread(
                     _parse_miroma_workbook,
