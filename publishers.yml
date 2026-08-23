@@ -10,7 +10,8 @@ publishers:
     open_library:
       publishers: ["O'Reilly Media"]
       languages: ["eng"]
-    connectors: ["oreilly_new_upcoming"]
+    oreilly_publishers: ["O'Reilly Media, Inc."]
+    connectors: ["oreilly_api"]
   - id: addison_wesley
     name: Addison-Wesley Professional
     languages: [en]
@@ -21,7 +22,8 @@ publishers:
     open_library:
       publishers: ["Addison-Wesley", "Addison-Wesley Professional"]
       languages: ["eng"]
-    connectors: ["addison_wesley_api"]
+    oreilly_publishers: ["Addison-Wesley Professional"]
+    connectors: ["oreilly_api"]
   - id: pearson
     name: Pearson
     languages: [en]
@@ -32,7 +34,8 @@ publishers:
     open_library:
       publishers: ["Pearson"]
       languages: ["eng"]
-    connectors: ["pearson_api"]
+    oreilly_publishers: ["Pearson"]
+    connectors: ["oreilly_api"]
   - id: apress
     name: Apress
     languages: [en]
@@ -87,7 +90,8 @@ publishers:
     open_library:
       publishers: ["Wrox Press"]
       languages: ["eng"]
-    connectors: ["wrox_api"]
+    oreilly_publishers: ["Wrox"]
+    connectors: ["oreilly_api"]
   - id: sams
     name: Sams Publishing
     languages: [en]

@@ -59,91 +59,95 @@ def _oreilly_published(obj: dict) -> date | None:
     return None
 
 
-async def _fetch_oreilly_api(
-    publisher: PublisherConfig, publishers_filter: str | None = None
-) -> list[BookRecord]:
+async def fetch_oreilly_api(publisher: PublisherConfig) -> list[BookRecord]:
+    """New titles of each ``publisher.oreilly_publishers`` name in the O'Reilly API.
+
+    The API's ``publishers`` parameter alone let other imprints through, so items are
+    also checked against the name client-side.
+    """
+    if not publisher.oreilly_publishers:
+        logger.warning("oreilly_api: no oreilly_publishers configured for %s", publisher.id)
+        return []
     settings = get_settings()
-    cutoff = date.today() - timedelta(days=settings.window_days)
     timeout = httpx.Timeout(settings.request_timeout, connect=settings.request_timeout)
     headers = {"User-Agent": settings.user_agent}
-    params = {"query": "*", "formats": "book", "sort": "publication_date", "page": 1}
-    if publishers_filter:
-        params["publishers"] = publishers_filter
-
     results: list[BookRecord] = []
     async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
-        while True:
-            resp = await get_with_retries(client, OREILLY_SEARCH_URL, params=params)
-            data = resp.json()
-            items = data.get("results") or []
-            if not items:
+        for api_name in publisher.oreilly_publishers:
+            budget = settings.max_results_per_source - len(results)
+            results.extend(await _fetch_oreilly_publisher(client, publisher, api_name, budget))
+            if len(results) >= settings.max_results_per_source:
                 break
-            page_too_old = False
-            for item in items:
-                published = _oreilly_published(item)
-                if not published:
-                    continue
-                today = date.today()
-                if published > today:
-                    continue
-                if published < cutoff:
-                    page_too_old = True
-                    continue
-                title = item.get("title") or "Untitled"
-                info_url = item.get("web_url") or item.get("url")
-                if info_url and info_url.startswith("/"):
-                    info_url = "https://learning.oreilly.com" + info_url
-                cover_url = item.get("cover_url")
-                description = _strip_html(item.get("description")) or None
-                pages = item.get("virtual_pages")
-                source_key = item.get("archive_id") or info_url or title
-                results.append(
-                    BookRecord(
-                        source="oreilly_api",
-                        source_key=source_key,
-                        publisher_id=publisher.id,
-                        title=title,
-                        subtitle=None,
-                        authors=_oreilly_authors(item),
-                        language="en",
-                        subjects=["computers"],
-                        topics=[],
-                        description=description,
-                        isbn_10=None,
-                        isbn_13=normalize_isbn13(item.get("isbn")),
-                        page_count=pages,
-                        print_type="book",
-                        published_date=published,
-                        cover_url=cover_url,
-                        info_url=info_url,
-                        raw=item,
-                    )
-                )
-                if len(results) >= settings.max_results_per_source:
-                    return results
-            if page_too_old:
-                break
-            next_url = data.get("next")
-            if not next_url:
-                break
-            params["page"] += 1
     return results
 
 
-async def fetch_oreilly_new_upcoming(publisher: PublisherConfig) -> list[BookRecord]:
-    return await _fetch_oreilly_api(publisher)
+async def _fetch_oreilly_publisher(
+    client: httpx.AsyncClient, publisher: PublisherConfig, api_name: str, limit: int
+) -> list[BookRecord]:
+    settings = get_settings()
+    cutoff = date.today() - timedelta(days=settings.window_days)
+    # sort direction is assumed newest first (the early stop relies on it); unverified
+    # since the API began answering 401/403 to anonymous clients
+    params = {
+        "query": "*",
+        "formats": "book",
+        "sort": "publication_date",
+        "publishers": api_name,
+        "page": 1,
+    }
+    results: list[BookRecord] = []
+    while True:
+        resp = await get_with_retries(client, OREILLY_SEARCH_URL, params=params)
+        data = resp.json()
+        items = data.get("results") or []
+        if not items:
+            break
+        page_too_old = False
+        for item in items:
+            if api_name not in (item.get("publishers") or []):
+                continue
+            published = _oreilly_published(item)
+            if not published:
+                continue
+            today = date.today()
+            if published > today:
+                continue
+            if published < cutoff:
+                page_too_old = True
+                continue
+            results.append(_oreilly_record(item, publisher, published))
+            if len(results) >= limit:
+                return results
+        if page_too_old:
+            break
+        if not data.get("next"):
+            break
+        params["page"] += 1
+    return results
 
 
-async def fetch_addison_wesley(publisher: PublisherConfig) -> list[BookRecord]:
-    return await _fetch_oreilly_api(publisher, publishers_filter="Addison-Wesley Professional")
-
-
-async def fetch_pearson(publisher: PublisherConfig) -> list[BookRecord]:
-    return await _fetch_oreilly_api(publisher, publishers_filter="Pearson")
-
-
-async def fetch_wrox(publisher: PublisherConfig) -> list[BookRecord]:
-    return await _fetch_oreilly_api(publisher, publishers_filter="Wrox")
+def _oreilly_record(item: dict, publisher: PublisherConfig, published: date) -> BookRecord:
+    title = item.get("title") or "Untitled"
+    info_url = item.get("web_url") or item.get("url")
+    if info_url and info_url.startswith("/"):
+        info_url = "https://learning.oreilly.com" + info_url
+    return BookRecord(
+        source="oreilly_api",
+        source_key=item.get("archive_id") or info_url or title,
+        publisher_id=publisher.id,
+        title=title,
+        authors=_oreilly_authors(item),
+        language="en",
+        subjects=["computers"],
+        description=_strip_html(item.get("description")) or None,
+        isbn_13=normalize_isbn13(item.get("isbn")),
+        page_count=item.get("virtual_pages"),
+        print_type="book",
+        published_date=published,
+        cover_url=item.get("cover_url"),
+        info_url=info_url,
+        raw=item,
+    )
 
 
 # ---- DMK Press computer-literature catalog (Bitrix HTML) ----
@@ -951,15 +955,12 @@ async def fetch_manning_catalog(publisher: PublisherConfig) -> list[BookRecord]:
 # on the page as a "book" with published_date=today. Re-add per-site connectors
 # here once proper selectors are written and tested against saved fixtures.
 CONNECTOR_MAP: dict[str, Callable[[PublisherConfig], Awaitable[list[BookRecord]]]] = {
-    "oreilly_new_upcoming": fetch_oreilly_new_upcoming,
+    "oreilly_api": fetch_oreilly_api,
     "dmk_catalog": fetch_dmk_catalog,
     "piter_catalog": fetch_piter_catalog,
     "bhv_store": fetch_bhv_store,
     "miroma_price": fetch_miroma_price,
     "nit_catalog": fetch_nit_catalog,
-    "addison_wesley_api": fetch_addison_wesley,
-    "pearson_api": fetch_pearson,
-    "wrox_api": fetch_wrox,
     "packt_search": fetch_packt_search,
     "manning_catalog": fetch_manning_catalog,
 }

@@ -26,6 +26,8 @@ class PublisherConfig(BaseModel):
     open_library: OpenLibraryConfig | None = None
     connectors: list[str] = Field(default_factory=list)
     aliases: list[str] = Field(default_factory=list)
+    # publisher names as the O'Reilly learning API spells them (oreilly_api connector)
+    oreilly_publishers: list[str] = Field(default_factory=list)
 
     @field_validator("id")
     @classmethod
