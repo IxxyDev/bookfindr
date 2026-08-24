@@ -11,7 +11,7 @@ publishers:
       publishers: ["O'Reilly Media"]
       languages: ["eng"]
     oreilly_publishers: ["O'Reilly Media, Inc."]
-    connectors: ["oreilly_api"]
+    connectors: []  # oreilly_api disabled: learning.oreilly.com API answers 401/403 to any client
   - id: addison_wesley
     name: Addison-Wesley Professional
     languages: [en]
@@ -23,7 +23,7 @@ publishers:
       publishers: ["Addison-Wesley", "Addison-Wesley Professional"]
       languages: ["eng"]
     oreilly_publishers: ["Addison-Wesley Professional"]
-    connectors: ["oreilly_api"]
+    connectors: []  # oreilly_api disabled: learning.oreilly.com API answers 401/403 to any client
   - id: pearson
     name: Pearson
     languages: [en]
@@ -35,7 +35,7 @@ publishers:
       publishers: ["Pearson"]
       languages: ["eng"]
     oreilly_publishers: ["Pearson"]
-    connectors: ["oreilly_api"]
+    connectors: []  # oreilly_api disabled: learning.oreilly.com API answers 401/403 to any client
   - id: apress
     name: Apress
     languages: [en]
@@ -91,7 +91,7 @@ publishers:
       publishers: ["Wrox Press"]
       languages: ["eng"]
     oreilly_publishers: ["Wrox"]
-    connectors: ["oreilly_api"]
+    connectors: []  # oreilly_api disabled: learning.oreilly.com API answers 401/403 to any client
   - id: sams
     name: Sams Publishing
     languages: [en]
