@@ -107,3 +107,26 @@ async def test_year_only_date_of_the_current_year_is_a_sighting(monkeypatch):
 
     assert record.published_date == date.today()
     assert record.published_date_is_sighting is True
+
+
+async def test_in_window_items_off_topic_do_not_end_paging(monkeypatch):
+    recent = date.today() - timedelta(days=3)
+    pages = {
+        "0": [
+            _volume("cookbook", recent, title="A cookbook with recipes"),
+            _volume("old", date(2001, 1, 1)),
+        ],
+        "40": [_volume("rust", recent)],
+    }
+    for volume in pages["0"][:1]:
+        volume["volumeInfo"]["categories"] = ["Cooking"]
+    install_mock_transport(
+        monkeypatch,
+        lambda request: httpx.Response(
+            200, json={"items": pages.get(request.url.params["startIndex"], [])}
+        ),
+    )
+
+    records = await fetch_google_books(_publisher(), _settings())
+
+    assert [r.source_key for r in records] == ["rust"]

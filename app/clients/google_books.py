@@ -56,7 +56,7 @@ async def fetch_google_books(
                     items = data.get("items") or []
                     if not items:
                         break
-                    added_this_page = 0
+                    in_window_this_page = 0
                     page_too_old = False
                     for item in items:
                         volume = item.get("volumeInfo", {})
@@ -68,6 +68,7 @@ async def fetch_google_books(
                         if published < cutoff:
                             page_too_old = True
                             continue
+                        in_window_this_page += 1
                         if not _is_computing(volume):
                             continue
                         logger.debug(
@@ -102,12 +103,12 @@ async def fetch_google_books(
                             raw=item,
                         )
                         results.append(record)
-                        added_this_page += 1
                         if len(results) >= cfg.max_results_per_source:
                             return results
-                    # orderBy=newest: once a page yields only out-of-window items,
-                    # everything further is older still
-                    if page_too_old and added_this_page == 0:
+                    # orderBy=newest: once a page holds only out-of-window items,
+                    # everything further is older still (off-topic items still count
+                    # as in-window: they say nothing about the dates further on)
+                    if page_too_old and in_window_this_page == 0:
                         break
                     start_index += 40
                     if start_index >= MAX_START_INDEX:
