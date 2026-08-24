@@ -6,6 +6,8 @@ from app.clients.connectors import fetch_manning_catalog
 from app.core.config import PublisherConfig
 from tests.mock_http import install_mock_transport
 
+WINDOW_DAYS = 90
+
 PUBLISHER = PublisherConfig(id="manning", name="Manning Publications")
 RECENT = (date.today() - timedelta(days=3)).isoformat() + "T00:00:00"
 
@@ -25,6 +27,6 @@ async def test_product_without_any_identifier_is_skipped(monkeypatch):
     ]
     install_mock_transport(monkeypatch, _serve(products))
 
-    records = await fetch_manning_catalog(PUBLISHER)
+    records = await fetch_manning_catalog(PUBLISHER, WINDOW_DAYS)
 
     assert [r.source_key for r in records] == ["42"]

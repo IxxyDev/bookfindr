@@ -96,7 +96,7 @@ async def run_sync(
                     )
                 )
             if "connectors" in use_sources:
-                results.append(await fetch_connectors(pub))
+                results.append(await fetch_connectors(pub, config.window_days))
             records = [record for result in results for record in result.records]
             errors = [error for result in results for error in result.errors]
 

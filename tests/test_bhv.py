@@ -6,6 +6,8 @@ from app.clients.connectors import fetch_bhv_store
 from app.core.config import PublisherConfig
 from tests.mock_http import install_mock_transport
 
+WINDOW_DAYS = 90
+
 PUBLISHER = PublisherConfig(id="bhv", name="БХВ-Петербург")
 
 
@@ -28,7 +30,7 @@ async def test_computing_category_or_computing_title_is_kept(monkeypatch):
     ]
     install_mock_transport(monkeypatch, _serve(products))
 
-    records = await fetch_bhv_store(PUBLISHER)
+    records = await fetch_bhv_store(PUBLISHER, WINDOW_DAYS)
 
     assert [r.source_key for r in records] == ["1", "2"]
 
@@ -38,7 +40,7 @@ async def test_records_are_dated_by_first_sighting(monkeypatch):
     product["description"] = "<p>ISBN 978-5-9775-1234-5</p>"
     install_mock_transport(monkeypatch, _serve([product]))
 
-    [record] = await fetch_bhv_store(PUBLISHER)
+    [record] = await fetch_bhv_store(PUBLISHER, WINDOW_DAYS)
 
     assert record.published_date == date.today()
     assert record.published_date_is_sighting is True

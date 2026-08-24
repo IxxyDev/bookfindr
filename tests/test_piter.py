@@ -6,6 +6,8 @@ from app.clients import connectors
 from app.core.config import PublisherConfig
 from tests.mock_http import install_mock_transport
 
+WINDOW_DAYS = 90
+
 PUBLISHER = PublisherConfig(id="piter", name="Питер")
 YEAR_PROPERTY = 1
 PRINT_YEAR_PROPERTY = 2
@@ -57,8 +59,21 @@ def test_publication_year_wins_over_print_year():
 async def test_paging_stops_at_a_page_of_only_old_years(monkeypatch):
     sent = install_mock_transport(monkeypatch, _serve(lambda page: _full_page(print_year=2015)))
 
-    assert await connectors.fetch_piter_catalog(PUBLISHER) == []
+    records = await connectors.fetch_piter_catalog(PUBLISHER, WINDOW_DAYS)
+
     assert len(sent) == 1
+    assert {r.published_date for r in records} == {date(2015, 1, 1)}  # the sync filters
+
+
+async def test_the_window_passed_in_decides_where_paging_stops(monkeypatch):
+    def two_old_pages(page: int) -> list[dict]:
+        return _full_page(print_year=2015) if page <= 2 else []
+
+    sent = install_mock_transport(monkeypatch, _serve(two_old_pages))
+
+    await connectors.fetch_piter_catalog(PUBLISHER, window_days=365 * 50)
+
+    assert len(sent) == 2  # capped at max_results_per_source, not stopped by age
 
 
 async def test_paging_stops_after_max_pages(monkeypatch):
@@ -67,7 +82,7 @@ async def test_paging_stops_after_max_pages(monkeypatch):
         monkeypatch, _serve(lambda page: _full_page(year=date.today().year))
     )
 
-    records = await connectors.fetch_piter_catalog(PUBLISHER)
+    records = await connectors.fetch_piter_catalog(PUBLISHER, WINDOW_DAYS)
 
     assert len(sent) == 1
     assert len(records) == 100

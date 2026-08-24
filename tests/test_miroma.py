@@ -5,6 +5,8 @@ from app.core.config import PublisherConfig
 from tests.mock_http import install_mock_transport
 from tests.test_connectors import MIROMA_ROWS, _xlsx_bytes
 
+WINDOW_DAYS = 90
+
 PUBLISHER = PublisherConfig(id="bhv", name="БХВ-Петербург", aliases=["БХВ"])
 LISTING_URL = "https://miromabook.ru/prays-listy/"
 
@@ -53,7 +55,7 @@ async def test_price_list_is_downloaded_and_parsed(monkeypatch):
     rows = [["Наименование", "Издательство"], ["Linux для всех", "БХВ"]]
     install_mock_transport(monkeypatch, _site(_xlsx_bytes(rows)))
 
-    [record] = await connectors.fetch_miroma_price(PUBLISHER)
+    [record] = await connectors.fetch_miroma_price(PUBLISHER, WINDOW_DAYS)
 
     assert (record.title, record.publisher_id, record.source) == (
         "Linux для всех",
@@ -68,4 +70,4 @@ async def test_price_list_over_the_download_budget_is_skipped(monkeypatch):
     rows = [["Наименование", "Издательство"], ["Linux для всех", "БХВ"]]
     install_mock_transport(monkeypatch, _site(_xlsx_bytes(rows)))
 
-    assert await connectors.fetch_miroma_price(PUBLISHER) == []
+    assert await connectors.fetch_miroma_price(PUBLISHER, WINDOW_DAYS) == []

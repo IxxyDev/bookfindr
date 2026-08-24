@@ -36,7 +36,12 @@ def failure_line(source: str, exc: Exception) -> str:
     return f"{source}: {type(exc).__name__}: {exc}"
 
 
-async def fetch_connectors(publisher: PublisherConfig) -> ConnectorResult:
+async def fetch_connectors(publisher: PublisherConfig, window_days: int) -> ConnectorResult:
+    """Run the publisher's connectors.
+
+    ``window_days`` only tells a connector where to stop paging; the sync applies
+    the window filter to every source alike.
+    """
     result = ConnectorResult()
     for name in publisher.connectors or []:
         fetcher = CONNECTOR_MAP.get(name)
@@ -44,7 +49,7 @@ async def fetch_connectors(publisher: PublisherConfig) -> ConnectorResult:
             logger.warning("Unknown connector %s for %s", name, publisher.id)
             continue
         try:
-            result.records.extend(await fetcher(publisher))
+            result.records.extend(await fetcher(publisher, window_days))
         except Exception as exc:
             logger.exception("Connector %s failed for %s", name, publisher.id)
             result.errors.append(failure_line(name, exc))
@@ -70,7 +75,7 @@ def _oreilly_published(obj: dict) -> date | None:
     return None
 
 
-async def fetch_oreilly_api(publisher: PublisherConfig) -> list[BookRecord]:
+async def fetch_oreilly_api(publisher: PublisherConfig, window_days: int) -> list[BookRecord]:
     """New titles of each ``publisher.oreilly_publishers`` name in the O'Reilly API.
 
     The API's ``publishers`` parameter alone let other imprints through, so items are
@@ -86,17 +91,22 @@ async def fetch_oreilly_api(publisher: PublisherConfig) -> list[BookRecord]:
     async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
         for api_name in publisher.oreilly_publishers:
             budget = settings.max_results_per_source - len(results)
-            results.extend(await _fetch_oreilly_publisher(client, publisher, api_name, budget))
+            results.extend(
+                await _fetch_oreilly_publisher(client, publisher, api_name, window_days, budget)
+            )
             if len(results) >= settings.max_results_per_source:
                 break
     return results
 
 
 async def _fetch_oreilly_publisher(
-    client: httpx.AsyncClient, publisher: PublisherConfig, api_name: str, limit: int
+    client: httpx.AsyncClient,
+    publisher: PublisherConfig,
+    api_name: str,
+    window_days: int,
+    limit: int,
 ) -> list[BookRecord]:
-    settings = get_settings()
-    cutoff = date.today() - timedelta(days=settings.window_days)
+    cutoff = date.today() - timedelta(days=window_days)
     # sort direction is assumed newest first (the early stop relies on it); unverified
     # since the API began answering 401/403 to anonymous clients
     params = {
@@ -120,12 +130,8 @@ async def _fetch_oreilly_publisher(
             published = _oreilly_published(item)
             if not published:
                 continue
-            today = date.today()
-            if published > today:
-                continue
             if published < cutoff:
                 page_too_old = True
-                continue
             results.append(_oreilly_record(item, publisher, published))
             if len(results) >= limit:
                 return results
@@ -197,7 +203,8 @@ def _parse_dmk_page(html_text: str) -> list[dict]:
     return cards
 
 
-async def fetch_dmk_catalog(publisher: PublisherConfig) -> list[BookRecord]:
+async def fetch_dmk_catalog(publisher: PublisherConfig, window_days: int) -> list[BookRecord]:
+    """Cards badged "Новинка"; paging stops with the badges, the window plays no part."""
     settings = get_settings()
     timeout = httpx.Timeout(settings.request_timeout, connect=settings.request_timeout)
     headers = {"User-Agent": settings.user_agent}
@@ -254,10 +261,11 @@ INSALES_YEAR_KEYS = ["год", "год издания", "год тиража"]
 INSALES_PAGES_KEYS = ["страниц", "количество страниц"]
 
 
-async def fetch_piter_catalog(publisher: PublisherConfig) -> list[BookRecord]:
+async def fetch_piter_catalog(publisher: PublisherConfig, window_days: int) -> list[BookRecord]:
     return await fetch_insales_collection(
         PITER_URL,
         publisher,
+        window_days,
         source="piter_json",
         site=PITER_SITE,
         max_pages=PITER_MAX_PAGES,
@@ -265,15 +273,16 @@ async def fetch_piter_catalog(publisher: PublisherConfig) -> list[BookRecord]:
     )
 
 
-async def fetch_nit_catalog(publisher: PublisherConfig) -> list[BookRecord]:
+async def fetch_nit_catalog(publisher: PublisherConfig, window_days: int) -> list[BookRecord]:
     return await fetch_insales_collection(
-        NIT_URL, publisher, source="nit_json", site=NIT_SITE, max_pages=NIT_MAX_PAGES
+        NIT_URL, publisher, window_days, source="nit_json", site=NIT_SITE, max_pages=NIT_MAX_PAGES
     )
 
 
 async def fetch_insales_collection(
     url: str,
     publisher: PublisherConfig,
+    window_days: int,
     source: str,
     site: str,
     max_pages: int,
@@ -282,7 +291,7 @@ async def fetch_insales_collection(
     settings = get_settings()
     timeout = httpx.Timeout(settings.request_timeout, connect=settings.request_timeout)
     headers = {"User-Agent": settings.user_agent}
-    cutoff = date.today() - timedelta(days=settings.window_days)
+    cutoff = date.today() - timedelta(days=window_days)
     results: list[BookRecord] = []
 
     async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
@@ -297,8 +306,6 @@ async def fetch_insales_collection(
                 break
             records = [_insales_record(prod, publisher, source, site) for prod in products]
             for record in records:
-                if not record.published_date or record.published_date < cutoff:
-                    continue
                 results.append(record)
                 if len(results) >= settings.max_results_per_source:
                     return results
@@ -397,7 +404,7 @@ def _insales_cover(prod: dict) -> str | None:
 BHV_COMPUTING_CATEGORY = "Компьютеры и программы"
 
 
-async def fetch_bhv_store(publisher: PublisherConfig) -> list[BookRecord]:
+async def fetch_bhv_store(publisher: PublisherConfig, window_days: int) -> list[BookRecord]:
     """WooCommerce Store API feed, newest first.
 
     The Store API exposes no product date, so records are dated by first sighting.
@@ -509,7 +516,8 @@ async def _download_capped(client: httpx.AsyncClient, url: str, max_bytes: int) 
     return b"".join(chunks)
 
 
-async def fetch_miroma_price(publisher: PublisherConfig) -> list[BookRecord]:
+async def fetch_miroma_price(publisher: PublisherConfig, window_days: int) -> list[BookRecord]:
+    """Every price-list row of the publisher; a price list has no order to page by."""
     settings = get_settings()
     timeout = httpx.Timeout(settings.request_timeout, connect=settings.request_timeout)
     headers = {"User-Agent": settings.user_agent}
@@ -805,12 +813,11 @@ BROWSER_USER_AGENT = (
 )
 
 
-async def fetch_packt_search(publisher: PublisherConfig) -> list[BookRecord]:
+async def fetch_packt_search(publisher: PublisherConfig, window_days: int) -> list[BookRecord]:
     settings = get_settings()
     timeout = httpx.Timeout(settings.request_timeout, connect=settings.request_timeout)
     # Packt returns 403 for non-browser user agents
     headers = {"User-Agent": BROWSER_USER_AGENT, "Accept-Language": "en"}
-    cutoff = date.today() - timedelta(days=settings.window_days)
 
     async with httpx.AsyncClient(timeout=timeout, headers=headers, follow_redirects=True) as client:
         resp = await get_with_retries(client, PACKT_SEARCH_URL)
@@ -827,8 +834,6 @@ async def fetch_packt_search(publisher: PublisherConfig) -> list[BookRecord]:
         if href and href.startswith("/"):
             href = "https://www.packtpub.com" + href
         published = _packt_published(card)
-        if published and published < cutoff:
-            continue
         description_el = card.css_first(".product-card-v2-content-info-description .ellipsis")
         description = description_el.text(strip=True) if description_el else None
         cover_el = card.css_first(".product-card-v2-content-info-header img")
@@ -898,11 +903,11 @@ def _manning_date(value: str | None) -> date | None:
         return parse_date(date_part)
 
 
-async def fetch_manning_catalog(publisher: PublisherConfig) -> list[BookRecord]:
+async def fetch_manning_catalog(publisher: PublisherConfig, window_days: int) -> list[BookRecord]:
     settings = get_settings()
     timeout = httpx.Timeout(settings.request_timeout, connect=settings.request_timeout)
     headers = {"User-Agent": settings.user_agent, "Content-Type": "application/json"}
-    cutoff = date.today() - timedelta(days=settings.window_days)
+    cutoff = date.today() - timedelta(days=window_days)
     payload = {
         "accessType": [],
         "keywords": [],
@@ -928,8 +933,6 @@ async def fetch_manning_catalog(publisher: PublisherConfig) -> list[BookRecord]:
                 published = _manning_date(prod.get("date"))
                 if published:
                     page_dates.append(published)
-                if published and published < cutoff:
-                    continue
                 product_key = prod.get("id") or prod.get("slug") or prod.get("link")
                 if not product_key:
                     continue  # nothing to dedupe on; str() turned it into the key "None"
@@ -969,7 +972,8 @@ async def fetch_manning_catalog(publisher: PublisherConfig) -> list[BookRecord]:
 # eunivers/apress/nostarch/informit/binom were removed: they collected every <a>
 # on the page as a "book" with published_date=today. Re-add per-site connectors
 # here once proper selectors are written and tested against saved fixtures.
-CONNECTOR_MAP: dict[str, Callable[[PublisherConfig], Awaitable[list[BookRecord]]]] = {
+# a connector takes (publisher, window_days)
+CONNECTOR_MAP: dict[str, Callable[[PublisherConfig, int], Awaitable[list[BookRecord]]]] = {
     "oreilly_api": fetch_oreilly_api,
     "dmk_catalog": fetch_dmk_catalog,
     "piter_catalog": fetch_piter_catalog,

@@ -21,11 +21,15 @@ def _record(source: str, title: str) -> BookRecord:
     )
 
 
-async def _fake_ok(publisher: PublisherConfig) -> list[BookRecord]:
+windows_seen: list[int] = []
+
+
+async def _fake_ok(publisher: PublisherConfig, window_days: int) -> list[BookRecord]:
+    windows_seen.append(window_days)
     return [_record("fake_ok", "Linux for everyone")]
 
 
-async def _fake_broken(publisher: PublisherConfig) -> list[BookRecord]:
+async def _fake_broken(publisher: PublisherConfig, window_days: int) -> list[BookRecord]:
     raise ValueError("layout changed")
 
 
@@ -36,7 +40,7 @@ def fake_connectors(monkeypatch):
 
 
 async def test_failed_connector_is_reported_and_the_rest_still_count(fake_connectors):
-    result = await connectors.fetch_connectors(PUBLISHER)
+    result = await connectors.fetch_connectors(PUBLISHER, 90)
 
     assert [r.title for r in result.records] == ["Linux for everyone"]
     assert result.errors == ["fake_broken: ValueError: layout changed"]
@@ -89,3 +93,14 @@ async def test_storage_failure_marks_the_run_as_error(db_session, fake_connector
     [run] = await sync.run_sync(db_session, config)
 
     assert (run.status, run.error) == ("error", "disk full")
+
+
+async def test_sync_hands_the_config_window_to_connectors(db_session, fake_connectors):
+    windows_seen.clear()
+    config = PublishersFile(
+        publishers=[PUBLISHER.model_copy(update={"connectors": ["fake_ok"]})], window_days=30
+    )
+
+    await sync.run_sync(db_session, config)
+
+    assert windows_seen == [30]

@@ -7,6 +7,8 @@ from app.clients.connectors import fetch_nit_catalog
 from app.core.config import PublisherConfig
 from tests.mock_http import install_mock_transport
 
+WINDOW_DAYS = 90
+
 PUBLISHER = PublisherConfig(id="nauka_technika", name="Наука и техника")
 UPDATED_AT = date.today() - timedelta(days=4)
 PROPERTIES = [
@@ -45,7 +47,7 @@ def _serve(products: list[dict]):
 async def test_characteristics_fill_the_record(monkeypatch):
     install_mock_transport(monkeypatch, _serve([_product(1, date.today().year)]))
 
-    [record] = await fetch_nit_catalog(PUBLISHER)
+    [record] = await fetch_nit_catalog(PUBLISHER, WINDOW_DAYS)
 
     assert record.authors == ["Иванов И.", "Петров П."]
     assert record.isbn_13 == "9785943871234"
@@ -58,11 +60,13 @@ async def test_characteristics_fill_the_record(monkeypatch):
 async def test_publication_year_dates_the_product_not_updated_at(monkeypatch):
     install_mock_transport(monkeypatch, _serve([_product(1, 2015)]))
 
-    assert await fetch_nit_catalog(PUBLISHER) == []
+    [record] = await fetch_nit_catalog(PUBLISHER, WINDOW_DAYS)
+
+    assert record.published_date == date(2015, 1, 1)  # the sync drops it, not the connector
 
 
 async def test_http_error_is_raised_not_swallowed(monkeypatch):
     install_mock_transport(monkeypatch, lambda request: httpx.Response(404))
 
     with pytest.raises(httpx.HTTPStatusError):
-        await fetch_nit_catalog(PUBLISHER)
+        await fetch_nit_catalog(PUBLISHER, WINDOW_DAYS)
