@@ -5,6 +5,7 @@ import logging
 import re
 import zipfile
 from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import PurePosixPath
 from urllib.parse import urljoin, urlparse
@@ -24,20 +25,30 @@ from app.utils.isbn import normalize_isbn10, normalize_isbn13
 logger = logging.getLogger(__name__)
 
 
-async def fetch_connectors(publisher: PublisherConfig) -> list[BookRecord]:
-    connectors = publisher.connectors or []
-    results: list[BookRecord] = []
-    for name in connectors:
+@dataclass
+class ConnectorResult:
+    records: list[BookRecord] = field(default_factory=list)
+    # one line per failed source: "<name>: <ExcType>: <message>"
+    errors: list[str] = field(default_factory=list)
+
+
+def failure_line(source: str, exc: Exception) -> str:
+    return f"{source}: {type(exc).__name__}: {exc}"
+
+
+async def fetch_connectors(publisher: PublisherConfig) -> ConnectorResult:
+    result = ConnectorResult()
+    for name in publisher.connectors or []:
         fetcher = CONNECTOR_MAP.get(name)
         if not fetcher:
             logger.warning("Unknown connector %s for %s", name, publisher.id)
             continue
         try:
-            records = await fetcher(publisher)
-            results.extend(records)
-        except Exception as exc:  # pragma: no cover - best-effort
-            logger.exception("Connector %s failed for %s: %s", name, publisher.id, exc)
-    return results
+            result.records.extend(await fetcher(publisher))
+        except Exception as exc:
+            logger.exception("Connector %s failed for %s", name, publisher.id)
+            result.errors.append(failure_line(name, exc))
+    return result
 
 
 # ---- O'Reilly new & upcoming (JSON API) ----

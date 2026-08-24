@@ -1,15 +1,16 @@
 import argparse
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import UTC, date, datetime, timedelta
 from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.clients.connectors import fetch_connectors
+from app.clients.connectors import ConnectorResult, failure_line, fetch_connectors
 from app.clients.google_books import fetch_google_books
 from app.clients.open_library import fetch_open_library
-from app.core.config import PublishersFile, get_settings, load_publishers
+from app.core.config import PublisherConfig, PublishersFile, Settings, get_settings, load_publishers
 from app.core.db import get_async_session, init_db
 from app.models.fetch_run import FetchRun
 from app.services.books import purge_future_books, purge_outdated_books, upsert_records
@@ -36,6 +37,21 @@ def _filter_recent_records(records: list[BookRecord], window_days: int) -> list[
             continue
         filtered.append(record)
     return filtered
+
+
+async def _fetch_aggregator(
+    name: str,
+    fetch: Callable[[PublisherConfig, Settings, int], Awaitable[list[BookRecord]]],
+    publisher: PublisherConfig,
+    settings: Settings,
+    window_days: int,
+) -> ConnectorResult:
+    """Run one aggregator; its failure must not end the publisher's run."""
+    try:
+        return ConnectorResult(records=await fetch(publisher, settings, window_days))
+    except Exception as exc:
+        logger.exception("%s failed for %s", name, publisher.id)
+        return ConnectorResult(errors=[failure_line(name, exc)])
 
 
 async def run_sync(
@@ -66,13 +82,23 @@ async def run_sync(
         session.add(run)
         await session.flush()
         try:
-            records: list[BookRecord] = []
+            results: list[ConnectorResult] = []
             if "google_books" in use_sources:
-                records.extend(await fetch_google_books(pub, settings, config.window_days))
+                results.append(
+                    await _fetch_aggregator(
+                        "google_books", fetch_google_books, pub, settings, config.window_days
+                    )
+                )
             if "open_library" in use_sources:
-                records.extend(await fetch_open_library(pub, settings, config.window_days))
+                results.append(
+                    await _fetch_aggregator(
+                        "open_library", fetch_open_library, pub, settings, config.window_days
+                    )
+                )
             if "connectors" in use_sources:
-                records.extend(await fetch_connectors(pub))
+                results.append(await fetch_connectors(pub))
+            records = [record for result in results for record in result.records]
+            errors = [error for result in results for error in result.errors]
 
             records = _filter_recent_records(records, config.window_days)
 
@@ -90,8 +116,10 @@ async def run_sync(
                 run.new_count = 0
                 run.updated_count = 0
 
-            run.status = "success"
-        except Exception as exc:  # pragma: no cover - defensive
+            # some sources failed: the records of the others are still stored
+            run.status = "partial" if errors else "success"
+            run.error = "; ".join(errors) or None
+        except Exception as exc:
             logger.exception("Sync failed for %s", pub.id)
             run.status = "error"
             run.error = str(exc)
