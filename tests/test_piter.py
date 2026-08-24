@@ -82,3 +82,10 @@ def test_current_year_without_updated_at_is_a_sighting():
     record = connectors._insales_record(prod, PUBLISHER, "piter_json", connectors.PITER_SITE)
     assert record.published_date == date.today()
     assert record.published_date_is_sighting is True
+
+
+def test_product_with_null_url_has_no_info_url():
+    prod = _product(1, year=date.today().year)
+    prod["url"] = None
+    record = connectors._insales_record(prod, PUBLISHER, "piter_json", connectors.PITER_SITE)
+    assert record.info_url is None

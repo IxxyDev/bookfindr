@@ -323,7 +323,8 @@ def _insales_record(prod: dict, publisher: PublisherConfig, source: str, site: s
         published_date=published,
         published_date_is_sighting=is_sighting,
         cover_url=_insales_cover(prod),
-        info_url=site + prod.get("url", ""),
+        # the feed sends "url": null for some products
+        info_url=site + prod["url"] if prod.get("url") else None,
         raw=prod,
     )
 
@@ -918,10 +919,13 @@ async def fetch_manning_catalog(publisher: PublisherConfig) -> list[BookRecord]:
                     page_dates.append(published)
                 if published and published < cutoff:
                     continue
+                product_key = prod.get("id") or prod.get("slug") or prod.get("link")
+                if not product_key:
+                    continue  # nothing to dedupe on; str() turned it into the key "None"
                 authors = _manning_authors(prod.get("authorshipDisplay"))
                 record = BookRecord(
                     source="manning_catalog",
-                    source_key=str(prod.get("id") or prod.get("slug") or prod.get("link")),
+                    source_key=str(product_key),
                     publisher_id=publisher.id,
                     title=prod.get("title") or "Untitled",
                     subtitle=prod.get("subtitle") or None,
