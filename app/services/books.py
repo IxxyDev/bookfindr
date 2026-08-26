@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.book import Book
 from app.models.book_source import BookSource
 from app.repositories.books import BookRepository
-from app.services.types import SOURCE_PRIORITY, BookRecord
+from app.services.types import BookRecord, source_priority
 
 logger = logging.getLogger(__name__)
 
@@ -29,9 +29,7 @@ async def find_existing_book(
 
 
 def _should_replace(current_source: str | None, incoming_source: str) -> bool:
-    current_score = SOURCE_PRIORITY.get(current_source or "", 0)
-    incoming_score = SOURCE_PRIORITY.get(incoming_source, 0)
-    return incoming_score > current_score
+    return source_priority(incoming_source) > source_priority(current_source)
 
 
 def merge_book(existing: Book, record: BookRecord) -> tuple[Book, bool]:

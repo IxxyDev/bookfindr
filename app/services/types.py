@@ -28,16 +28,15 @@ class BookRecord:
     dedupe_key: str | None = None
 
 
+# Aggregators rank below connectors; any source not listed here is a connector.
 SOURCE_PRIORITY = {
-    "oreilly_api": 3,
-    "dmk_html": 3,
-    "piter_json": 3,
-    "bhv_store": 3,
-    "miroma_price": 3,
-    "nit_json": 3,
-    "packt_search": 3,
-    "manning_catalog": 3,
-    "connector": 3,
     "google_books": 2,
     "open_library": 1,
 }
+CONNECTOR_PRIORITY = 3
+
+
+def source_priority(source: str | None) -> int:
+    if not source:
+        return 0
+    return SOURCE_PRIORITY.get(source, CONNECTOR_PRIORITY)
