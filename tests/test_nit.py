@@ -3,7 +3,7 @@ from datetime import date, timedelta
 import httpx
 import pytest
 
-from app.clients.connectors import fetch_nit_catalog
+from app.clients.connectors.nit import fetch_nit_catalog
 from app.core.config import PublisherConfig
 from tests.mock_http import install_mock_transport
 

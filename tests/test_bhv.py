@@ -2,7 +2,7 @@ from datetime import date
 
 import httpx
 
-from app.clients.connectors import fetch_bhv_store
+from app.clients.connectors.bhv import fetch_bhv_store
 from app.core.config import PublisherConfig
 from tests.mock_http import install_mock_transport
 

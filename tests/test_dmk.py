@@ -2,7 +2,7 @@ from datetime import date
 
 import httpx
 
-from app.clients.connectors import fetch_dmk_catalog
+from app.clients.connectors.dmk import fetch_dmk_catalog
 from app.core.config import PublisherConfig
 from tests.mock_http import install_mock_transport
 from tests.test_connectors import DMK_SAMPLE

@@ -1,11 +1,10 @@
 from datetime import date
 
-from app.clients.connectors import (
-    _extract_price_links,
-    _find_isbn_in_text,
-    _manning_authors,
-    _parse_dmk_page,
-)
+from app.clients.connectors import insales, miroma
+from app.clients.connectors.bhv import _find_isbn_in_text
+from app.clients.connectors.dmk import _parse_dmk_page
+from app.clients.connectors.manning import _manning_authors
+from app.clients.connectors.miroma import _cell_text, _extract_price_links, _parse_miroma_workbook
 
 
 def test_find_isbn_in_text_hyphenated():
@@ -123,8 +122,6 @@ MIROMA_ROWS = [
 
 
 def test_parse_miroma_workbook_xlsx():
-    from app.clients.connectors import _parse_miroma_workbook
-
     records = _parse_miroma_workbook(_xlsx_bytes(MIROMA_ROWS))
     assert [r.title for r in records] == ["Linux для всех", "Сети без года"]
     first = records[0]
@@ -156,8 +153,6 @@ MIROMA_DISTRIBUTOR_ROWS = [
 
 
 def test_parse_miroma_workbook_finds_header_after_preamble_and_filters_publisher():
-    from app.clients.connectors import _parse_miroma_workbook
-
     everything = _parse_miroma_workbook(_xlsx_bytes(MIROMA_DISTRIBUTOR_ROWS))
     assert [r.title for r in everything] == ["Linux для всех", "Старая книга по сетям"]
 
@@ -180,8 +175,6 @@ def test_parse_miroma_workbook_finds_header_after_preamble_and_filters_publisher
 
 
 def test_parse_miroma_workbook_sorts_isbn_cells_into_13_and_10():
-    from app.clients.connectors import _parse_miroma_workbook
-
     rows = [
         ["Наименование", "ISBN"],
         ["Linux: два ISBN", "978-5-9775-1234-5, 978-5-9775-1234-6"],
@@ -197,8 +190,6 @@ def test_parse_miroma_workbook_sorts_isbn_cells_into_13_and_10():
 
 
 def test_parse_miroma_workbook_drops_non_computing_titles():
-    from app.clients.connectors import _parse_miroma_workbook
-
     rows = [
         ["Наименование", "Издательство"],
         ["Программирование для начинающих", "БХВ"],
@@ -212,8 +203,6 @@ def test_parse_miroma_workbook_zip_with_xlsx():
     import io
     import zipfile
 
-    from app.clients.connectors import _parse_miroma_workbook
-
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as archive:
         archive.writestr("readme.txt", "ignored")
@@ -223,15 +212,11 @@ def test_parse_miroma_workbook_zip_with_xlsx():
 
 
 def test_parse_miroma_workbook_garbage_is_empty():
-    from app.clients.connectors import _parse_miroma_workbook
-
     assert _parse_miroma_workbook(b"not a spreadsheet") == []
     assert _parse_miroma_workbook(b"PK\x03\x04broken") == []
 
 
 def test_cell_text_normalizes_numeric_cells():
-    from app.clients.connectors import _cell_text
-
     assert _cell_text(None) == ""
     assert _cell_text(2025.0) == "2025"  # xlrd returns every number as float
     assert _cell_text(9785000000001.0) == "9785000000001"
@@ -240,8 +225,6 @@ def test_cell_text_normalizes_numeric_cells():
 
 
 def test_parse_miroma_workbook_xls_via_xlrd(monkeypatch):
-    from app.clients import connectors
-
     grid = [["Название", "Год", "ISBN"], ["Книга про сети", 2025.0, 9785000000001.0]]
 
     class _Sheet:
@@ -256,8 +239,8 @@ def test_parse_miroma_workbook_xls_via_xlrd(monkeypatch):
         def sheets(self):
             return [_Sheet()]
 
-    monkeypatch.setattr(connectors.xlrd, "open_workbook", lambda file_contents: _Book())
-    records = connectors._parse_miroma_workbook(b"\xd0\xcf\x11\xe0 legacy xls")
+    monkeypatch.setattr(miroma.xlrd, "open_workbook", lambda file_contents: _Book())
+    records = _parse_miroma_workbook(b"\xd0\xcf\x11\xe0 legacy xls")
     assert len(records) == 1
     assert records[0].title == "Книга про сети"
     assert records[0].published_date == date(2025, 1, 1)
@@ -269,8 +252,6 @@ def test_parse_miroma_workbook_rejects_nested_archives():
     import io
     import zipfile
 
-    from app.clients.connectors import _parse_miroma_workbook
-
     inner = io.BytesIO()
     with zipfile.ZipFile(inner, "w") as archive:
         archive.writestr("price.xlsx", _xlsx_bytes(MIROMA_ROWS))
@@ -281,24 +262,20 @@ def test_parse_miroma_workbook_rejects_nested_archives():
 
 
 def test_parse_miroma_workbook_enforces_size_budget(monkeypatch):
-    from app.clients import connectors
-
     payload = _xlsx_bytes(MIROMA_ROWS)
-    monkeypatch.setattr(connectors, "ZIP_MAX_UNCOMPRESSED_BYTES", 100)
-    assert connectors._parse_miroma_workbook(payload) == []
-    monkeypatch.setattr(connectors, "ZIP_MAX_UNCOMPRESSED_BYTES", 50 * 1024 * 1024)
-    monkeypatch.setattr(connectors, "ZIP_MAX_MEMBERS", 1)
-    assert connectors._parse_miroma_workbook(payload) == []
+    monkeypatch.setattr(miroma, "ZIP_MAX_UNCOMPRESSED_BYTES", 100)
+    assert _parse_miroma_workbook(payload) == []
+    monkeypatch.setattr(miroma, "ZIP_MAX_UNCOMPRESSED_BYTES", 50 * 1024 * 1024)
+    monkeypatch.setattr(miroma, "ZIP_MAX_MEMBERS", 1)
+    assert _parse_miroma_workbook(payload) == []
 
 
 def test_piter_isbn_is_stored_without_hyphens():
-    from app.clients.connectors import _insales_char_values, _insales_isbn
-
     prod = {
         "properties": [{"id": 7, "title": "ISBN"}],
         "characteristics": [{"property_id": 7, "title": "978-5-4461-2345-6"}],
     }
-    assert _insales_isbn(_insales_char_values(prod)) == "9785446123456"
+    assert insales._insales_isbn(insales._insales_char_values(prod)) == "9785446123456"
 
 
 def _piter_product(year: str | None, updated_at: str | None) -> dict:
@@ -311,17 +288,15 @@ def _piter_product(year: str | None, updated_at: str | None) -> dict:
 
 
 def test_piter_published_date(monkeypatch):
-    from app.clients import connectors
-
     class _Today(date):
         @classmethod
         def today(cls):
             return date(2026, 9, 20)
 
-    monkeypatch.setattr(connectors, "date", _Today)
+    monkeypatch.setattr(insales, "date", _Today)
 
     def published(prod: dict) -> date | None:
-        return connectors._insales_published_date(prod, connectors._insales_char_values(prod))
+        return insales._insales_published_date(prod, insales._insales_char_values(prod))
 
     current_year = published(_piter_product("2026", "2026-09-01T10:00:00Z"))
     assert current_year == date(2026, 9, 1)

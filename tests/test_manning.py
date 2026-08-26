@@ -2,7 +2,7 @@ from datetime import date, timedelta
 
 import httpx
 
-from app.clients.connectors import fetch_manning_catalog
+from app.clients.connectors.manning import fetch_manning_catalog
 from app.core.config import PublisherConfig
 from tests.mock_http import install_mock_transport
 
