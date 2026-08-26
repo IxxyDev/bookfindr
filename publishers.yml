@@ -57,7 +57,7 @@ publishers:
     open_library:
       publishers: ["Packt Publishing"]
       languages: ["eng"]
-    connectors: []  # packt_search disabled: packtpub.com returns 403 to non-browser clients
+    connectors: []  # no connector: packtpub.com returns 403 to non-browser clients
   - id: nostarch
     name: No Starch Press
     languages: [en]
