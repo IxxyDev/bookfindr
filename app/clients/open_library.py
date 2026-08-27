@@ -53,7 +53,6 @@ async def fetch_open_library(
 
     publishers = publisher.open_library.publishers or [publisher.name]
     languages = publisher.open_library.languages or publisher.languages or []
-    subjects = publisher.subjects or ["computers"]
 
     async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
         for pub_name in publishers:
@@ -67,8 +66,6 @@ async def fetch_open_library(
                 }
                 if languages:
                     params["language"] = languages[0]
-                if subjects:
-                    params["subject"] = ",".join(subjects)
                 resp = await get_with_retries(client, OPEN_LIBRARY_SEARCH, params=params)
                 data = resp.json()
                 docs = data.get("docs") or []

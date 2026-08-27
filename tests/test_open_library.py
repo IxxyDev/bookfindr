@@ -36,6 +36,14 @@ async def test_requests_the_fields_it_reads(monkeypatch):
     assert {"key", "title", "publish_date", "first_publish_year", "language", "isbn"} <= set(fields)
 
 
+async def test_does_not_narrow_the_search_by_subject(monkeypatch):
+    sent = install_mock_transport(monkeypatch, _first_page_only([]))
+
+    await fetch_open_library(_publisher(), Settings())
+
+    assert "subject" not in sent[0].url.params
+
+
 async def test_publish_date_becomes_the_record_date(monkeypatch):
     published = date.today() - timedelta(days=5)
     doc = _doc("/works/OL1W", publish_date=[published.isoformat(), "2001"], language=["eng"])
