@@ -1,10 +1,11 @@
 from datetime import date, timedelta
 
 import httpx
+import pytest
 
 from app.clients.connectors import oreilly
 from app.core.config import PublisherConfig
-from tests.mock_http import install_mock_transport
+from tests.mock_http import cap_results, install_mock_transport
 
 WINDOW_DAYS = 90
 
@@ -77,3 +78,91 @@ async def test_future_dated_items_are_left_to_the_sync(monkeypatch):
     records = await oreilly.fetch_oreilly_api(_publisher("O'Reilly Media, Inc."), WINDOW_DAYS)
 
     assert [r.source_key for r in records] == ["1"]
+
+
+def _pages(*pages: list[dict]):
+    def handler(request: httpx.Request) -> httpx.Response:
+        page = int(request.url.params["page"])
+        has_next = page < len(pages)
+        items = pages[page - 1] if page <= len(pages) else []
+        return httpx.Response(200, json={"results": items, "next": "more" if has_next else None})
+
+    return handler
+
+
+NAME = "O'Reilly Media, Inc."
+
+
+async def test_follows_next_pages(monkeypatch):
+    sent = install_mock_transport(monkeypatch, _pages([_item("1", NAME)], [_item("2", NAME)]))
+
+    records = await oreilly.fetch_oreilly_api(_publisher(NAME), WINDOW_DAYS)
+
+    assert [r.source_key for r in records] == ["1", "2"]
+    assert [r.url.params["page"] for r in sent] == ["1", "2"]
+
+
+async def test_a_page_reaching_past_the_window_is_the_last(monkeypatch):
+    old = _item("old", NAME)
+    old["issued"] = "2001-01-01"
+    sent = install_mock_transport(monkeypatch, _pages([_item("1", NAME), old], [_item("2", NAME)]))
+
+    records = await oreilly.fetch_oreilly_api(_publisher(NAME), WINDOW_DAYS)
+
+    assert [r.source_key for r in records] == ["1", "old"]  # the sync drops "old"
+    assert len(sent) == 1
+
+
+async def test_results_are_capped(monkeypatch):
+    cap_results(monkeypatch, oreilly, 1)
+    install_mock_transport(monkeypatch, _pages([_item("1", NAME), _item("2", NAME)]))
+
+    records = await oreilly.fetch_oreilly_api(_publisher(NAME), WINDOW_DAYS)
+
+    assert [r.source_key for r in records] == ["1"]
+
+
+async def test_http_error_propagates(monkeypatch):
+    install_mock_transport(monkeypatch, lambda request: httpx.Response(403))
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await oreilly.fetch_oreilly_api(_publisher(NAME), WINDOW_DAYS)
+
+
+def test_published_date_prefers_issued_then_date_added_then_timestamp():
+    assert oreilly._oreilly_published({"issued": "2026-05-01", "date_added": "2026-06-01"}) == date(
+        2026, 5, 1
+    )
+    assert oreilly._oreilly_published(
+        {"date_added": "2026-06-01T10:00:00Z", "timestamp": "2026-07-01"}
+    ) == date(2026, 6, 1)
+    assert oreilly._oreilly_published({"timestamp": "2026-07-01T00:00:00+03:00"}) == date(
+        2026, 7, 1
+    )
+    assert oreilly._oreilly_published({}) is None
+
+
+def test_record_fixes_relative_urls_and_normalizes_isbn():
+    item = {
+        "archive_id": "9781098100000",
+        "title": "Fluent Python",
+        "url": "/library/view/fluent-python/9781098100000/",
+        "isbn": "978-1-0981-0000-0",
+        "authors": "Luciano Ramalho",
+        "description": "<p>Clear, <b>concise</b></p>",
+    }
+    record = oreilly._oreilly_record(item, _publisher(NAME), date(2026, 5, 1))
+
+    assert (
+        record.info_url == "https://learning.oreilly.com/library/view/fluent-python/9781098100000/"
+    )
+    assert record.isbn_13 == "9781098100000"
+    assert record.authors == ["Luciano Ramalho"]
+    assert record.description == "Clear, concise"
+
+
+def test_record_keeps_absolute_urls():
+    item = {"title": "T", "web_url": "https://www.oreilly.com/library/view/t/1/"}
+    record = oreilly._oreilly_record(item, _publisher(NAME), date(2026, 5, 1))
+    assert record.info_url == "https://www.oreilly.com/library/view/t/1/"
+    assert record.source_key == "https://www.oreilly.com/library/view/t/1/"

@@ -23,3 +23,12 @@ def install_mock_transport(monkeypatch, handler: Handler) -> list[httpx.Request]
 
     monkeypatch.setattr(httpx, "AsyncClient", client_factory)
     return sent
+
+
+def cap_results(monkeypatch, connector_module, limit: int) -> None:
+    """Make ``connector_module`` see max_results_per_source = ``limit``."""
+    from app.core.config import Settings
+
+    monkeypatch.setattr(
+        connector_module, "get_settings", lambda: Settings(max_results_per_source=limit)
+    )

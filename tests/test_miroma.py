@@ -1,8 +1,9 @@
 import httpx
+import pytest
 
 from app.clients.connectors import miroma
 from app.core.config import PublisherConfig
-from tests.mock_http import install_mock_transport
+from tests.mock_http import cap_results, install_mock_transport
 from tests.test_connectors import MIROMA_ROWS, _xlsx_bytes
 
 WINDOW_DAYS = 90
@@ -71,3 +72,36 @@ async def test_price_list_over_the_download_budget_is_skipped(monkeypatch):
     install_mock_transport(monkeypatch, _site(_xlsx_bytes(rows)))
 
     assert await miroma.fetch_miroma_price(PUBLISHER, WINDOW_DAYS) == []
+
+
+BHV_ROWS = [["Наименование", "Издательство"], ["Linux для всех", "БХВ"], ["Сети", "БХВ"]]
+
+
+async def test_a_broken_price_list_does_not_stop_the_others(monkeypatch):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == LISTING_URL:
+            links = '<a href="/files/broken.xlsx">x</a><a href="/files/good.xlsx">y</a>'
+            return httpx.Response(200, text=links)
+        if request.url.path.endswith("broken.xlsx"):
+            return httpx.Response(404)
+        return httpx.Response(200, content=_xlsx_bytes(BHV_ROWS))
+
+    install_mock_transport(monkeypatch, handler)
+
+    records = await miroma.fetch_miroma_price(PUBLISHER, WINDOW_DAYS)
+
+    assert [r.title for r in records] == ["Linux для всех", "Сети"]
+
+
+async def test_results_are_capped(monkeypatch):
+    cap_results(monkeypatch, miroma, 1)
+    install_mock_transport(monkeypatch, _site(_xlsx_bytes(BHV_ROWS)))
+
+    assert len(await miroma.fetch_miroma_price(PUBLISHER, WINDOW_DAYS)) == 1
+
+
+async def test_unreachable_listing_propagates(monkeypatch):
+    install_mock_transport(monkeypatch, lambda request: httpx.Response(403))
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await miroma.fetch_miroma_price(PUBLISHER, WINDOW_DAYS)

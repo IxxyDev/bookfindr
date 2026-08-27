@@ -70,3 +70,19 @@ async def test_http_error_is_raised_not_swallowed(monkeypatch):
 
     with pytest.raises(httpx.HTTPStatusError):
         await fetch_nit_catalog(PUBLISHER, WINDOW_DAYS)
+
+
+async def test_full_pages_are_followed_until_a_short_one(monkeypatch):
+    def handler(request: httpx.Request) -> httpx.Response:
+        page = int(request.url.params["page"])
+        size = 100 if page == 1 else 7
+        products = [_product(page * 1000 + i, date.today().year) for i in range(size)]
+        return httpx.Response(200, json={"products": products})
+
+    sent = install_mock_transport(monkeypatch, handler)
+
+    records = await fetch_nit_catalog(PUBLISHER, WINDOW_DAYS)
+
+    assert len(records) == 107
+    assert len(sent) == 2
+    assert "sort" not in sent[0].url.params  # NiT's listing order is not by date

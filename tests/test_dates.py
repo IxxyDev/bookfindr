@@ -11,6 +11,11 @@ def test_parse_iso_datetime():
     assert parse_date("2024-01-15T10:30:00") == date(2024, 1, 15)
 
 
+def test_parse_datetime_with_offset_or_z():
+    assert parse_date("2024-01-15T23:30:00+03:00") == date(2024, 1, 15)
+    assert parse_date("2024-01-15T10:30:00Z") == date(2024, 1, 15)
+
+
 def test_parse_year_only():
     assert parse_date("2024") == date(2024, 1, 1)
 

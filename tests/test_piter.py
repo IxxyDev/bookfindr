@@ -4,7 +4,7 @@ import httpx
 
 from app.clients.connectors import insales, piter
 from app.core.config import PublisherConfig
-from tests.mock_http import install_mock_transport
+from tests.mock_http import cap_results, install_mock_transport
 
 WINDOW_DAYS = 90
 
@@ -104,3 +104,24 @@ def test_product_with_null_url_has_no_info_url():
     prod["url"] = None
     record = insales._insales_record(prod, PUBLISHER, "piter_json", piter.PITER_SITE)
     assert record.info_url is None
+
+
+async def test_paging_stops_once_count_is_reached(monkeypatch):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, json={"count": 100, "products": _full_page(year=date.today().year)}
+        )
+
+    sent = install_mock_transport(monkeypatch, handler)
+
+    await piter.fetch_piter_catalog(PUBLISHER, WINDOW_DAYS)
+
+    assert len(sent) == 1
+    assert sent[0].url.params["sort"] == "created_at_desc"
+
+
+async def test_results_are_capped(monkeypatch):
+    cap_results(monkeypatch, insales, 5)
+    install_mock_transport(monkeypatch, _serve(lambda page: _full_page(year=date.today().year)))
+
+    assert len(await piter.fetch_piter_catalog(PUBLISHER, WINDOW_DAYS)) == 5
