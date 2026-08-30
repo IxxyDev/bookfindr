@@ -135,3 +135,39 @@ async def test_upsert_same_record_twice_keeps_one_source_row(db_session, sample_
     rows = (await db_session.scalars(select(BookSource))).all()
     assert len(rows) == 1
     assert rows[0].raw == {"v": 2}
+
+
+def test_merge_book_empty_values_do_not_wipe_fields():
+    book = Book(
+        id=str(uuid4()),
+        title="Existing Title",
+        authors=["Author One"],
+        subjects=["computers"],
+        description="Existing desc",
+        publisher_id="oreilly",
+        source_primary="google_books",
+        source_keys={},
+    )
+    record = _make_record(source="dmk_html", title="Existing Title", authors=[], description="")
+    merged, _ = merge_book(book, record)
+    assert merged.authors == ["Author One"]
+    assert merged.subjects == ["computers"]
+    assert merged.description == "Existing desc"
+
+
+def test_merge_book_fills_empty_values_from_lower_priority():
+    book = Book(
+        id=str(uuid4()),
+        title="Existing Title",
+        authors=[],
+        description="",
+        publisher_id="oreilly",
+        source_primary="dmk_html",
+        source_keys={},
+    )
+    record = _make_record(source="open_library", authors=["Author One"], description="Desc")
+    merged, changed = merge_book(book, record)
+    assert changed is True
+    assert merged.authors == ["Author One"]
+    assert merged.description == "Desc"
+    assert merged.title == "Existing Title"

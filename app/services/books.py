@@ -32,6 +32,10 @@ def _should_replace(current_source: str | None, incoming_source: str) -> bool:
     return source_priority(incoming_source) > source_priority(current_source)
 
 
+def _is_missing(value) -> bool:
+    return value is None or value == "" or value == []
+
+
 def merge_book(existing: Book, record: BookRecord) -> tuple[Book, bool]:
     updated = False
     source_update = _should_replace(existing.source_primary, record.source)
@@ -39,9 +43,9 @@ def merge_book(existing: Book, record: BookRecord) -> tuple[Book, bool]:
     def set_if_better(attr: str, new_value):
         nonlocal updated
         current = getattr(existing, attr)
-        if new_value is None:
+        if _is_missing(new_value):
             return
-        if current is None or source_update:
+        if _is_missing(current) or source_update:
             if current != new_value:
                 setattr(existing, attr, new_value)
                 updated = True
