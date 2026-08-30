@@ -76,13 +76,19 @@ def merge_book(existing: Book, record: BookRecord) -> tuple[Book, bool]:
 
 
 async def attach_source(repo: BookRepository, book_id: str, record: BookRecord) -> None:
+    fetched_at = datetime.now(UTC)
+    existing = await repo.find_source(book_id, record.source, record.source_key)
+    if existing:
+        existing.raw = record.raw
+        existing.fetched_at = fetched_at
+        return
     source = BookSource(
         id=str(uuid4()),
         book_id=book_id,
         source=record.source,
         source_key=record.source_key,
         raw=record.raw,
-        fetched_at=datetime.now(UTC),
+        fetched_at=fetched_at,
     )
     await repo.add_source(source)
 

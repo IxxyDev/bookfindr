@@ -146,9 +146,9 @@ def _alembic_config(connection: Connection) -> AlembicConfig:
     return cfg
 
 
-def run_migrations(connection: Connection) -> None:
-    """Upgrade the schema to head (sync; call via ``conn.run_sync``)."""
-    command.upgrade(_alembic_config(connection), "head")
+def run_migrations(connection: Connection, revision: str = "head") -> None:
+    """Upgrade the schema to ``revision`` (sync; call via ``conn.run_sync``)."""
+    command.upgrade(_alembic_config(connection), revision)
 
 
 async def init_db() -> None:

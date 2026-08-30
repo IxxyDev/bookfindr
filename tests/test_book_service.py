@@ -115,3 +115,23 @@ async def test_upsert_second_source_persists_source_keys(db_session, sample_publ
     assert updated == 1
     book = (await db_session.scalars(select(Book).where(Book.title == "Persist Me"))).one()
     assert book.source_keys == {"google_books": "g1", "open_library": "o1"}
+
+
+async def test_upsert_same_record_twice_keeps_one_source_row(db_session, sample_publisher):
+    from sqlalchemy import select
+
+    from app.models.book_source import BookSource
+    from app.services.books import upsert_records
+
+    first = _make_record(source="dmk_html", source_key="d1", title="Refetch Me", raw={"v": 1})
+    await upsert_records(db_session, [first])
+    await db_session.commit()
+
+    again = _make_record(source="dmk_html", source_key="d1", title="Refetch Me", raw={"v": 2})
+    await upsert_records(db_session, [again])
+    await db_session.commit()
+    db_session.expunge_all()
+
+    rows = (await db_session.scalars(select(BookSource))).all()
+    assert len(rows) == 1
+    assert rows[0].raw == {"v": 2}

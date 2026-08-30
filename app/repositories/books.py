@@ -144,6 +144,16 @@ class BookRepository:
     async def add_book(self, book: Book) -> None:
         self._session.add(book)
 
+    async def find_source(
+        self, book_id: str, source: str, source_key: str | None
+    ) -> BookSource | None:
+        stmt = select(BookSource).where(
+            BookSource.book_id == book_id,
+            BookSource.source == source,
+            BookSource.source_key.is_not_distinct_from(source_key),
+        )
+        return await self._session.scalar(stmt)
+
     async def add_source(self, book_source: BookSource) -> None:
         self._session.add(book_source)
 
