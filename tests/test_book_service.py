@@ -204,3 +204,17 @@ def test_merge_book_sighting_date_fills_a_missing_date():
     )
     merged, _ = merge_book(book, record)
     assert merged.published_date == date(2026, 10, 1)
+
+
+async def test_upsert_other_edition_with_own_isbn_creates_a_book(db_session, sample_publisher):
+    from sqlalchemy import func, select
+
+    from app.services.books import upsert_records
+
+    first = _make_record(source="open_library", source_key="o1", isbn_13="9780000000001")
+    second = _make_record(source="google_books", source_key="g2", isbn_13="9780000000002")
+    new_count, _ = await upsert_records(db_session, [first, second])
+    await db_session.commit()
+
+    assert new_count == 2
+    assert await db_session.scalar(select(func.count()).select_from(Book)) == 2

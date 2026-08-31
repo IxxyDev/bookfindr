@@ -131,15 +131,22 @@ class BookRepository:
     async def find_existing(
         self, isbn_13: str | None, isbn_10: str | None, dedupe_key: str
     ) -> Book | None:
-        stmt = select(Book)
-        conditions = []
+        """ISBN-13, then ISBN-10; the dedupe key only for a record without any ISBN.
+
+        A record with its own ISBN that matches by title/author is another edition.
+        """
         if isbn_13:
-            conditions.append(Book.isbn_13 == isbn_13)
+            book = await self._session.scalar(select(Book).where(Book.isbn_13 == isbn_13))
+            if book:
+                return book
         if isbn_10:
-            conditions.append(Book.isbn_10 == isbn_10)
-        conditions.append(Book.dedupe_key == dedupe_key)
-        stmt = stmt.where(or_(*conditions))
-        return await self._session.scalar(stmt)
+            book = await self._session.scalar(select(Book).where(Book.isbn_10 == isbn_10))
+            if book:
+                return book
+        if isbn_13 or isbn_10:
+            return None
+        stmt = select(Book).where(Book.dedupe_key == dedupe_key).order_by(Book.created_at)
+        return await self._session.scalar(stmt.limit(1))
 
     async def add_book(self, book: Book) -> None:
         self._session.add(book)

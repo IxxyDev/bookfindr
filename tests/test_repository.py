@@ -123,3 +123,38 @@ async def test_find_existing_by_dedupe_key(db_session, repo, publisher):
     found = await repo.find_existing(None, None, "unique-dk-123")
     assert found is not None
     assert found.title == "Dedupe Book"
+
+
+async def test_find_existing_prefers_isbn_over_dedupe_key(db_session, repo, publisher):
+    by_key = Book(id="by-key", title="Key", publisher_id=publisher.id, dedupe_key="dk-shared")
+    by_isbn = Book(id="by-isbn", title="Isbn", publisher_id=publisher.id, isbn_13="9780000000002")
+    db_session.add_all([by_key, by_isbn])
+    await db_session.flush()
+
+    found = await repo.find_existing("9780000000002", None, "dk-shared")
+    assert found is not None
+    assert found.id == "by-isbn"
+
+
+async def test_find_existing_falls_back_to_isbn_10(db_session, repo, publisher):
+    db_session.add(Book(id="ten", title="Ten", publisher_id=publisher.id, isbn_10="0000000001"))
+    await db_session.flush()
+
+    found = await repo.find_existing("9780000000009", "0000000001", "dk-none")
+    assert found is not None
+    assert found.id == "ten"
+
+
+async def test_find_existing_ignores_dedupe_key_when_record_has_isbn(db_session, repo, publisher):
+    db_session.add(
+        Book(
+            id="first-edition",
+            title="Same Title",
+            publisher_id=publisher.id,
+            isbn_13="9780000000001",
+            dedupe_key="dk-same",
+        )
+    )
+    await db_session.flush()
+
+    assert await repo.find_existing("9780000000002", None, "dk-same") is None
