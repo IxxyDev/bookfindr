@@ -1,5 +1,6 @@
 import hashlib
 import logging
+import re
 from collections.abc import Iterable
 from datetime import UTC, date, datetime
 from uuid import uuid4
@@ -15,9 +16,23 @@ from app.services.types import BookRecord, source_priority
 logger = logging.getLogger(__name__)
 
 
+_PUNCTUATION = re.compile(r"[^\w\s]")
+
+
+def _normalize_words(text: str) -> str:
+    return " ".join(_PUNCTUATION.sub(" ", text.lower()).split())
+
+
 def build_dedupe_key(book: BookRecord | Book) -> str:
-    author_part = "|".join(a.lower() for a in book.authors or [])
-    key_base = f"{book.title.strip().lower()}|{book.publisher_id}|{author_part}"
+    """Hash of normalized title, publisher and the first author's surname.
+
+    Only the surname: sources disagree on middle initials ("Nathan B. Crocker").
+    Migration 0003 holds a frozen copy of this function; change both together
+    and add a migration that recomputes stored keys.
+    """
+    first_author = (book.authors or [""])[0]
+    surname = (_normalize_words(first_author).split() or [""])[-1]
+    key_base = f"{_normalize_words(book.title)}|{book.publisher_id}|{surname}"
     return hashlib.sha1(key_base.encode("utf-8")).hexdigest()
 
 

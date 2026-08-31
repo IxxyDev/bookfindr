@@ -237,3 +237,29 @@ async def test_upsert_merge_recomputes_dedupe_key_from_merged_book(db_session, s
     book = await db_session.scalar(select(Book))
     assert book.title == "Kept Title"
     assert book.dedupe_key == build_dedupe_key(book)
+
+
+def test_build_dedupe_key_normalizes_title_and_uses_first_author_surname():
+    import hashlib
+
+    record = _make_record(
+        title="  Learning   Python: Powerful, OOP!  ",
+        publisher_id="oreilly",
+        authors=["Mark J. Lutz", "Someone Else"],
+    )
+    expected = hashlib.sha1(b"learning python powerful oop|oreilly|lutz").hexdigest()
+    assert build_dedupe_key(record) == expected
+
+
+def test_build_dedupe_key_ignores_middle_initials():
+    r1 = _make_record(title="Swift Recipes", authors=["Nathan B. Crocker"])
+    r2 = _make_record(title="Swift recipes.", authors=["Nathan Crocker"])
+    assert build_dedupe_key(r1) == build_dedupe_key(r2)
+
+
+def test_build_dedupe_key_without_authors():
+    import hashlib
+
+    record = _make_record(title="Изучаем Python, 5-е издание", publisher_id="dmk", authors=[])
+    expected = hashlib.sha1("изучаем python 5 е издание|dmk|".encode()).hexdigest()
+    assert build_dedupe_key(record) == expected

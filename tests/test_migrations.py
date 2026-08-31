@@ -119,3 +119,32 @@ async def test_migration_0002_keeps_newest_book_source_per_key(tmp_path):
     assert {"name": "ux_book_sources_book_source_key", "unique": 1} in [
         {"name": ix["name"], "unique": ix["unique"]} for ix in indexes
     ]
+
+
+async def test_migration_0003_recomputes_dedupe_keys(tmp_path):
+    import hashlib
+
+    def seed(sync_conn):
+        _insert(sync_conn, "publishers", id="pub", name="Pub")
+        _insert(
+            sync_conn,
+            "books",
+            id="b1",
+            title="Swift Recipes.",
+            publisher_id="pub",
+            authors='["Nathan B. Crocker", "Other"]',
+            dedupe_key="old",
+        )
+        _insert(sync_conn, "books", id="b2", title="No Authors", publisher_id="pub")
+
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'keys.db'}")
+    async with engine.begin() as conn:
+        await conn.run_sync(run_migrations, "0002")
+        await conn.run_sync(seed)
+        await conn.run_sync(run_migrations)
+        keys = dict((await conn.execute(text("SELECT id, dedupe_key FROM books"))).all())
+    await engine.dispose()
+    assert keys == {
+        "b1": hashlib.sha1(b"swift recipes|pub|crocker").hexdigest(),
+        "b2": hashlib.sha1(b"no authors|pub|").hexdigest(),
+    }
