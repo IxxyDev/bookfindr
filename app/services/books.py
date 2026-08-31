@@ -15,9 +15,9 @@ from app.services.types import BookRecord, source_priority
 logger = logging.getLogger(__name__)
 
 
-def build_dedupe_key(record: BookRecord) -> str:
-    author_part = "|".join(a.lower() for a in record.authors or [])
-    key_base = f"{record.title.strip().lower()}|{record.publisher_id}|{author_part}"
+def build_dedupe_key(book: BookRecord | Book) -> str:
+    author_part = "|".join(a.lower() for a in book.authors or [])
+    key_base = f"{book.title.strip().lower()}|{book.publisher_id}|{author_part}"
     return hashlib.sha1(key_base.encode("utf-8")).hexdigest()
 
 
@@ -108,7 +108,7 @@ async def _upsert_one(
         if existing:
             merged, changed = merge_book(existing, record)
             if changed:
-                merged.dedupe_key = record.dedupe_key
+                merged.dedupe_key = build_dedupe_key(merged)
             await attach_source(repo, merged.id, record)
             return "updated" if changed else None
         book_id = str(uuid4())
