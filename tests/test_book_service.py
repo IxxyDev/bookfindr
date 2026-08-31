@@ -1,3 +1,4 @@
+from datetime import date
 from uuid import uuid4
 
 from app.models.book import Book
@@ -171,3 +172,35 @@ def test_merge_book_fills_empty_values_from_lower_priority():
     assert merged.authors == ["Author One"]
     assert merged.description == "Desc"
     assert merged.title == "Existing Title"
+
+
+def test_merge_book_sighting_date_never_overwrites_a_date():
+    book = Book(
+        id=str(uuid4()),
+        title="Existing Title",
+        publisher_id="oreilly",
+        published_date=date(2026, 5, 1),
+        source_primary="open_library",
+        source_keys={},
+    )
+    record = _make_record(
+        source="bhv_store", published_date=date(2026, 10, 1), published_date_is_sighting=True
+    )
+    merged, _ = merge_book(book, record)
+    assert merged.published_date == date(2026, 5, 1)
+    assert merged.source_primary == "bhv_store"
+
+
+def test_merge_book_sighting_date_fills_a_missing_date():
+    book = Book(
+        id=str(uuid4()),
+        title="Existing Title",
+        publisher_id="oreilly",
+        source_primary="google_books",
+        source_keys={},
+    )
+    record = _make_record(
+        source="open_library", published_date=date(2026, 10, 1), published_date_is_sighting=True
+    )
+    merged, _ = merge_book(book, record)
+    assert merged.published_date == date(2026, 10, 1)

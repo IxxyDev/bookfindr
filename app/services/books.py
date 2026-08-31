@@ -61,7 +61,9 @@ def merge_book(existing: Book, record: BookRecord) -> tuple[Book, bool]:
     set_if_better("isbn_13", record.isbn_13)
     set_if_better("page_count", record.page_count)
     set_if_better("print_type", record.print_type)
-    set_if_better("published_date", record.published_date)
+    # A "first seen" date only fills a gap: it is no evidence against a date already known
+    if not record.published_date_is_sighting or existing.published_date is None:
+        set_if_better("published_date", record.published_date)
     set_if_better("cover_url", record.cover_url)
     set_if_better("info_url", record.info_url)
 
