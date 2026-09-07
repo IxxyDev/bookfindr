@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import logging
+import re
 from collections.abc import Awaitable, Callable
 from datetime import UTC, date, datetime, timedelta
 from uuid import uuid4
@@ -21,6 +22,13 @@ logger = logging.getLogger(__name__)
 
 # Guards against concurrent syncs (manual trigger vs scheduled job).
 sync_lock = asyncio.Lock()
+
+# Query strings carry API keys; migration 0004 holds a frozen copy of this pattern
+_URL_QUERY = re.compile(r"(https?://[^\s?#'\"<>]+)\?[^\s#'\"<>]*")
+
+
+def redact_url_query(text: str) -> str:
+    return _URL_QUERY.sub(r"\1?<redacted>", text)
 
 
 def _filter_recent_records(records: list[BookRecord], window_days: int) -> list[BookRecord]:
@@ -118,11 +126,11 @@ async def run_sync(
 
             # some sources failed: the records of the others are still stored
             run.status = "partial" if errors else "success"
-            run.error = "; ".join(errors) or None
+            run.error = redact_url_query("; ".join(errors)) or None
         except Exception as exc:
             logger.exception("Sync failed for %s", pub.id)
             run.status = "error"
-            run.error = str(exc)
+            run.error = redact_url_query(str(exc))
         finally:
             run.finished_at = datetime.now(UTC)
             await session.commit()

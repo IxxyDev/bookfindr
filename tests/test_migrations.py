@@ -148,3 +148,26 @@ async def test_migration_0003_recomputes_dedupe_keys(tmp_path):
         "b1": hashlib.sha1(b"swift recipes|pub|crocker").hexdigest(),
         "b2": hashlib.sha1(b"no authors|pub|").hexdigest(),
     }
+
+
+async def test_migration_0004_scrubs_query_strings_from_fetch_run_errors(tmp_path):
+    def seed(sync_conn):
+        _insert(
+            sync_conn,
+            "fetch_runs",
+            id="leaky",
+            status="error",
+            new_count=0,
+            updated_count=0,
+            error="for url 'https://example.com/v1?q=x&key=SECRET'",
+        )
+        _insert(sync_conn, "fetch_runs", id="clean", status="success", new_count=0, updated_count=0)
+
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'runs.db'}")
+    async with engine.begin() as conn:
+        await conn.run_sync(run_migrations, "0003")
+        await conn.run_sync(seed)
+        await conn.run_sync(run_migrations)
+        errors = dict((await conn.execute(text("SELECT id, error FROM fetch_runs"))).all())
+    await engine.dispose()
+    assert errors == {"leaky": "for url 'https://example.com/v1?<redacted>'", "clean": None}
