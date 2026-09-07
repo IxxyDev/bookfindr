@@ -88,7 +88,8 @@ async def run_sync(
             updated_count=0,
         )
         session.add(run)
-        await session.flush()
+        # Commit now: /sync/status sees the run, and no write transaction stays open while fetching
+        await session.commit()
         try:
             results: list[ConnectorResult] = []
             if "google_books" in use_sources:
