@@ -147,3 +147,41 @@ async def test_sync_run_requires_api_key(client, monkeypatch):
     assert res.status_code == 403
     res = await client.post("/sync/run", json={"dry_run": True}, headers={"X-Api-Key": "nope"})
     assert res.status_code == 403
+
+
+@pytest.fixture()
+def ten_day_window():
+    from app.core.config import PublishersFile, get_publishers_config
+    from app.main import app
+
+    app.dependency_overrides[get_publishers_config] = lambda: PublishersFile(
+        publishers=[], window_days=10
+    )
+    yield
+    app.dependency_overrides.pop(get_publishers_config, None)
+
+
+async def test_books_default_window_comes_from_publishers_config(
+    client, db_session, api_publisher, ten_day_window
+):
+    from datetime import timedelta
+
+    for title, age in [("Fresh", 5), ("Stale", 20)]:
+        db_session.add(
+            Book(
+                id=str(uuid4()),
+                title=title,
+                publisher_id=api_publisher.id,
+                published_date=date.today() - timedelta(days=age),
+            )
+        )
+    await db_session.commit()
+
+    res = await client.get("/books")
+    assert [b["title"] for b in res.json()] == ["Fresh"]
+    assert res.headers["x-total-count"] == "1"
+
+
+async def test_root_page_shows_configured_window(client, ten_day_window):
+    res = await client.get("/")
+    assert "Последние 10 дней" in res.text

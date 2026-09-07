@@ -25,3 +25,15 @@ def test_publisher_config_id_lowercase():
 def test_load_publishers_missing_file():
     with pytest.raises(FileNotFoundError):
         load_publishers("/nonexistent/path/to/publishers.yml")
+
+
+def test_load_publishers_window_defaults_to_settings(tmp_path, monkeypatch):
+    from app.core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "window_days", 30)
+    path = tmp_path / "publishers.yml"
+    path.write_text("publishers:\n  - id: pub\n    name: Pub\n")
+    assert load_publishers(str(path)).window_days == 30
+
+    path.write_text("publishers: []\nwindow_days: 45\n")
+    assert load_publishers(str(path)).window_days == 45

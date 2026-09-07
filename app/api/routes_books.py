@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
+from app.core.config import PublishersFile, get_publishers_config
 from app.core.db import get_session
 from app.repositories import BookFilters
 from app.schemas.book import BookDetailSchema, BookSchema, BookSourceSchema
@@ -25,9 +25,9 @@ async def list_books(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     session: AsyncSession = Depends(get_session),
+    config: PublishersFile = Depends(get_publishers_config),
 ) -> JSONResponse:
-    settings = get_settings()
-    default_from = date.today() - timedelta(days=settings.window_days)
+    default_from = date.today() - timedelta(days=config.window_days)
     filters = BookFilters(
         publisher_id=publisher_id,
         language=language,

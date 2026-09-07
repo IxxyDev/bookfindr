@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -14,7 +14,7 @@ from app.api.routes_health import router as health_router
 from app.api.routes_publishers import router as publishers_router
 from app.api.routes_stats import router as stats_router
 from app.api.routes_sync import router as sync_router
-from app.core.config import get_settings, load_publishers
+from app.core.config import PublishersFile, get_publishers_config, load_publishers
 from app.core.db import get_async_session, init_db
 from app.services.sync import run_sync, sync_lock
 
@@ -65,10 +65,9 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 
 @app.get("/", response_class=HTMLResponse)
-async def root(request: Request):
-    settings = get_settings()
+async def root(request: Request, config: PublishersFile = Depends(get_publishers_config)):
     return templates.TemplateResponse(
         request,
         "index.html",
-        {"window_days": settings.window_days},
+        {"window_days": config.window_days},
     )

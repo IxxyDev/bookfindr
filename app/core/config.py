@@ -37,7 +37,8 @@ class PublisherConfig(BaseModel):
 
 class PublishersFile(BaseModel):
     publishers: list[PublisherConfig]
-    window_days: int = 90
+    # YAML wins; otherwise WINDOW_DAYS / Settings. Everything reads the window from here.
+    window_days: int = Field(default_factory=lambda: get_settings().window_days)
 
 
 class Settings(BaseSettings):
@@ -65,3 +66,8 @@ def load_publishers(config_path: str | None = None) -> PublishersFile:
         raise FileNotFoundError(f"Publishers config not found at {path}")
     raw: dict[str, Any] = yaml.safe_load(path.read_text()) or {}
     return PublishersFile(**raw)
+
+
+def get_publishers_config() -> PublishersFile:
+    """FastAPI dependency: the publishers file as loaded now."""
+    return load_publishers()
