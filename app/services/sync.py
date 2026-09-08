@@ -119,13 +119,17 @@ async def _sync_publisher(
 
         records = _filter_recent_records(records, config.window_days)
 
-        if not dry_run:
-            new_count, updated_count = await upsert_records(session, records)
-            run.new_count = new_count
-            run.updated_count = updated_count
+        if dry_run:
+            # Upsert for real counts, then undo it
+            savepoint = await session.begin_nested()
+            try:
+                new_count, updated_count = await upsert_records(session, records)
+            finally:
+                await savepoint.rollback()
         else:
-            run.new_count = 0
-            run.updated_count = 0
+            new_count, updated_count = await upsert_records(session, records)
+        run.new_count = new_count
+        run.updated_count = updated_count
 
         # some sources failed: the records of the others are still stored
         run.status = "partial" if errors else "success"

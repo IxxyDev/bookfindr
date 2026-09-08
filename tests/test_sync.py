@@ -142,3 +142,15 @@ async def test_purge_drops_fetch_runs_past_retention(db_session):
     await run_sync(db_session, _config())
 
     assert (await db_session.scalars(select(FetchRun.id))).all() == ["recent"]
+
+
+async def test_dry_run_reports_real_counts_and_writes_no_books(db_session, monkeypatch):
+    monkeypatch.setattr(
+        sync, "fetch_connectors", _connectors_returning(_record("pub", "A"), _record("pub", "B"))
+    )
+
+    runs = await run_sync(db_session, _config("pub"), dry_run=True)
+
+    assert (runs[0].status, runs[0].new_count, runs[0].updated_count) == ("success", 2, 0)
+    assert (await db_session.scalars(select(Book))).all() == []
+    assert (await db_session.scalars(select(FetchRun.new_count))).all() == [2]
