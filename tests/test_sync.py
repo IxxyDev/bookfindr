@@ -110,3 +110,22 @@ async def test_db_error_in_one_publisher_does_not_abort_the_rest(db_session, mon
     assert {r.publisher_id: r.status for r in runs} == {"broken": "error", "fine": "success"}
     assert "FOREIGN KEY" in runs[0].error
     assert (await db_session.scalars(select(Book.title))).all() == ["B"]
+
+
+async def test_purge_runs_once_after_all_publishers(db_session, monkeypatch):
+    calls: list[str] = []
+
+    def fake_purge(name):
+        async def purge(_session, _day):
+            calls.append(name)
+            return 0
+
+        return purge
+
+    monkeypatch.setattr(sync, "fetch_connectors", _connectors_returning())
+    monkeypatch.setattr(sync, "purge_outdated_books", fake_purge("outdated"))
+    monkeypatch.setattr(sync, "purge_future_books", fake_purge("future"))
+
+    await run_sync(db_session, _config("one", "two", "three"))
+
+    assert calls == ["outdated", "future"]

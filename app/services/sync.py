@@ -62,6 +62,15 @@ async def _fetch_aggregator(
         return ConnectorResult(errors=[failure_line(name, exc)])
 
 
+async def _purge(session: AsyncSession, window_days: int) -> None:
+    # Same local clock as connectors/_filter_recent_records: a UTC date
+    # here would purge books scraped "today" local time as future-dated
+    today = date.today()
+    await purge_outdated_books(session, today - timedelta(days=window_days))
+    await purge_future_books(session, today)
+    await session.commit()
+
+
 async def _sync_publisher(
     session: AsyncSession,
     config: PublishersFile,
@@ -104,13 +113,7 @@ async def _sync_publisher(
         records = _filter_recent_records(records, config.window_days)
 
         if not dry_run:
-            # Same local clock as connectors/_filter_recent_records: a UTC date
-            # here would purge books scraped "today" local time as future-dated
-            today = date.today()
             new_count, updated_count = await upsert_records(session, records)
-            cutoff = today - timedelta(days=config.window_days)
-            await purge_outdated_books(session, cutoff)
-            await purge_future_books(session, today)
             run.new_count = new_count
             run.updated_count = updated_count
         else:
@@ -144,11 +147,14 @@ async def run_sync(
 ) -> list[FetchRun]:
     use_sources = sources or ["connectors"]
     await sync_publishers(session, config)
-    return [
-        await _sync_publisher(session, config, pub, use_sources, dry_run)
-        for pub in config.publishers
-        if not publisher_id or pub.id == publisher_id
-    ]
+    runs: list[FetchRun] = []
+    for pub in config.publishers:
+        if publisher_id and pub.id != publisher_id:
+            continue
+        runs.append(await _sync_publisher(session, config, pub, use_sources, dry_run))
+    if not dry_run:
+        await _purge(session, config.window_days)
+    return runs
 
 
 async def run_once_from_cli(publisher_id: str | None = None, dry_run: bool = False) -> None:
