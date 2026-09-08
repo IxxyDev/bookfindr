@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from sqlalchemy import select
@@ -129,3 +129,16 @@ async def test_purge_runs_once_after_all_publishers(db_session, monkeypatch):
     await run_sync(db_session, _config("one", "two", "three"))
 
     assert calls == ["outdated", "future"]
+
+
+async def test_purge_drops_fetch_runs_past_retention(db_session):
+    now = datetime.now(UTC)
+    for run_id, age_days in [("old", sync.FETCH_RUN_RETENTION_DAYS + 1), ("recent", 1)]:
+        db_session.add(
+            FetchRun(id=run_id, status="success", started_at=now - timedelta(days=age_days))
+        )
+    await db_session.commit()
+
+    await run_sync(db_session, _config())
+
+    assert (await db_session.scalars(select(FetchRun.id))).all() == ["recent"]

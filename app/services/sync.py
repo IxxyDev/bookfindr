@@ -14,11 +14,15 @@ from app.clients.open_library import fetch_open_library
 from app.core.config import PublisherConfig, PublishersFile, Settings, get_settings, load_publishers
 from app.core.db import get_async_session, init_db
 from app.models.fetch_run import FetchRun
+from app.repositories.fetch_runs import delete_runs_started_before
 from app.services.books import purge_future_books, purge_outdated_books, upsert_records
 from app.services.publishers import sync_publishers
 from app.services.types import BookRecord
 
 logger = logging.getLogger(__name__)
+
+# fetch_runs is a log for /sync/status and /stats, not an archive
+FETCH_RUN_RETENTION_DAYS = 30
 
 # Guards against concurrent syncs (manual trigger vs scheduled job).
 sync_lock = asyncio.Lock()
@@ -68,6 +72,9 @@ async def _purge(session: AsyncSession, window_days: int) -> None:
     today = date.today()
     await purge_outdated_books(session, today - timedelta(days=window_days))
     await purge_future_books(session, today)
+    await delete_runs_started_before(
+        session, datetime.now(UTC) - timedelta(days=FETCH_RUN_RETENTION_DAYS)
+    )
     await session.commit()
 
 
