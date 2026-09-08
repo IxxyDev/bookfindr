@@ -1,3 +1,5 @@
+from datetime import date
+
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -5,9 +7,11 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.clients.connectors import ConnectorResult
 from app.core.config import PublisherConfig, PublishersFile
 from app.core.db import Base, create_fts_objects
+from app.models.book import Book
 from app.models.fetch_run import FetchRun
 from app.services import sync
 from app.services.sync import redact_url_query, run_sync
+from app.services.types import BookRecord
 
 LEAKY_ERROR = (
     "Client error '403 Forbidden' for url "
@@ -65,3 +69,44 @@ async def test_running_fetch_run_is_committed_before_fetching(file_session_facto
         await run_sync(session, _config("pub"))
 
     assert seen_statuses == ["running"]
+
+
+def _record(publisher_id: str, title: str, published: date | None = None) -> BookRecord:
+    return BookRecord(
+        source="dmk_html",
+        source_key=f"{publisher_id}-{title}",
+        publisher_id=publisher_id,
+        title=title,
+        published_date=published or date.today(),
+    )
+
+
+def _connectors_returning(*records: BookRecord, errors: list[str] | None = None):
+    async def fetch(publisher, _window_days):
+        own = [r for r in records if r.publisher_id == publisher.id]
+        return ConnectorResult(records=own, errors=list(errors or []))
+
+    return fetch
+
+
+async def test_db_error_in_one_publisher_does_not_abort_the_rest(db_session, monkeypatch):
+    real_upsert = sync.upsert_records
+
+    async def upsert(session, records):
+        if records and records[0].publisher_id == "broken":
+            session.add(Book(id="orphan", title="Orphan", publisher_id="no-such-publisher"))
+            await session.flush()  # FK violation: the session now needs a rollback
+        return await real_upsert(session, records)
+
+    monkeypatch.setattr(sync, "upsert_records", upsert)
+    monkeypatch.setattr(
+        sync,
+        "fetch_connectors",
+        _connectors_returning(_record("broken", "A"), _record("fine", "B")),
+    )
+
+    runs = await run_sync(db_session, _config("broken", "fine"))
+
+    assert {r.publisher_id: r.status for r in runs} == {"broken": "error", "fine": "success"}
+    assert "FOREIGN KEY" in runs[0].error
+    assert (await db_session.scalars(select(Book.title))).all() == ["B"]

@@ -62,6 +62,79 @@ async def _fetch_aggregator(
         return ConnectorResult(errors=[failure_line(name, exc)])
 
 
+async def _sync_publisher(
+    session: AsyncSession,
+    config: PublishersFile,
+    pub: PublisherConfig,
+    sources: list[str],
+    dry_run: bool,
+) -> FetchRun:
+    settings = get_settings()
+    run = FetchRun(
+        id=str(uuid4()),
+        publisher_id=pub.id,
+        source=",".join(sources),
+        started_at=datetime.now(UTC),
+        status="running",
+        new_count=0,
+        updated_count=0,
+    )
+    session.add(run)
+    # Commit now: /sync/status sees the run, and no write transaction stays open while fetching
+    await session.commit()
+    try:
+        results: list[ConnectorResult] = []
+        if "google_books" in sources:
+            results.append(
+                await _fetch_aggregator(
+                    "google_books", fetch_google_books, pub, settings, config.window_days
+                )
+            )
+        if "open_library" in sources:
+            results.append(
+                await _fetch_aggregator(
+                    "open_library", fetch_open_library, pub, settings, config.window_days
+                )
+            )
+        if "connectors" in sources:
+            results.append(await fetch_connectors(pub, config.window_days))
+        records = [record for result in results for record in result.records]
+        errors = [error for result in results for error in result.errors]
+
+        records = _filter_recent_records(records, config.window_days)
+
+        if not dry_run:
+            # Same local clock as connectors/_filter_recent_records: a UTC date
+            # here would purge books scraped "today" local time as future-dated
+            today = date.today()
+            new_count, updated_count = await upsert_records(session, records)
+            cutoff = today - timedelta(days=config.window_days)
+            await purge_outdated_books(session, cutoff)
+            await purge_future_books(session, today)
+            run.new_count = new_count
+            run.updated_count = updated_count
+        else:
+            run.new_count = 0
+            run.updated_count = 0
+
+        # some sources failed: the records of the others are still stored
+        run.status = "partial" if errors else "success"
+        run.error = redact_url_query("; ".join(errors)) or None
+        run.finished_at = datetime.now(UTC)
+        await session.commit()
+    except Exception as exc:
+        logger.exception("Sync failed for %s", pub.id)
+        # A failed flush leaves the session unusable until rolled back; the run row
+        # itself was committed above and is updated below
+        await session.rollback()
+        run.status = "error"
+        run.error = redact_url_query(str(exc))
+        run.finished_at = datetime.now(UTC)
+        await session.commit()
+        await session.refresh(run)
+    return run
+
+
 async def run_sync(
     session: AsyncSession,
     config: PublishersFile,
@@ -69,74 +142,13 @@ async def run_sync(
     sources: list[str] | None = None,
     dry_run: bool = False,
 ) -> list[FetchRun]:
-    runs: list[FetchRun] = []
     use_sources = sources or ["connectors"]
-
     await sync_publishers(session, config)
-    settings = get_settings()
-
-    for pub in config.publishers:
-        if publisher_id and pub.id != publisher_id:
-            continue
-        run = FetchRun(
-            id=str(uuid4()),
-            publisher_id=pub.id,
-            source=",".join(use_sources),
-            started_at=datetime.now(UTC),
-            status="running",
-            new_count=0,
-            updated_count=0,
-        )
-        session.add(run)
-        # Commit now: /sync/status sees the run, and no write transaction stays open while fetching
-        await session.commit()
-        try:
-            results: list[ConnectorResult] = []
-            if "google_books" in use_sources:
-                results.append(
-                    await _fetch_aggregator(
-                        "google_books", fetch_google_books, pub, settings, config.window_days
-                    )
-                )
-            if "open_library" in use_sources:
-                results.append(
-                    await _fetch_aggregator(
-                        "open_library", fetch_open_library, pub, settings, config.window_days
-                    )
-                )
-            if "connectors" in use_sources:
-                results.append(await fetch_connectors(pub, config.window_days))
-            records = [record for result in results for record in result.records]
-            errors = [error for result in results for error in result.errors]
-
-            records = _filter_recent_records(records, config.window_days)
-
-            if not dry_run:
-                # Same local clock as connectors/_filter_recent_records: a UTC date
-                # here would purge books scraped "today" local time as future-dated
-                today = date.today()
-                new_count, updated_count = await upsert_records(session, records)
-                cutoff = today - timedelta(days=config.window_days)
-                await purge_outdated_books(session, cutoff)
-                await purge_future_books(session, today)
-                run.new_count = new_count
-                run.updated_count = updated_count
-            else:
-                run.new_count = 0
-                run.updated_count = 0
-
-            # some sources failed: the records of the others are still stored
-            run.status = "partial" if errors else "success"
-            run.error = redact_url_query("; ".join(errors)) or None
-        except Exception as exc:
-            logger.exception("Sync failed for %s", pub.id)
-            run.status = "error"
-            run.error = redact_url_query(str(exc))
-        finally:
-            run.finished_at = datetime.now(UTC)
-            await session.commit()
-            runs.append(run)
-    return runs
+    return [
+        await _sync_publisher(session, config, pub, use_sources, dry_run)
+        for pub in config.publishers
+        if not publisher_id or pub.id == publisher_id
+    ]
 
 
 async def run_once_from_cli(publisher_id: str | None = None, dry_run: bool = False) -> None:
