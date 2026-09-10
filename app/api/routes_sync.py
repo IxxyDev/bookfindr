@@ -34,19 +34,21 @@ async def _check_sync_api_key(x_api_key: str | None = Header(None)) -> None:
 
 
 async def _run_sync_in_background(payload: SyncRequest) -> None:
-    async with sync_lock:
-        try:
-            config = load_publishers()
-            async with get_async_session()() as session:
-                await run_sync(
-                    session,
-                    config,
-                    publisher_id=payload.publisher_id,
-                    sources=payload.sources,
-                    dry_run=payload.dry_run,
-                )
-        except Exception:
-            logger.exception("Background sync failed")
+    """Runs with sync_lock already held by the handler; releases it when done."""
+    try:
+        config = load_publishers()
+        async with get_async_session()() as session:
+            await run_sync(
+                session,
+                config,
+                publisher_id=payload.publisher_id,
+                sources=payload.sources,
+                dry_run=payload.dry_run,
+            )
+    except Exception:
+        logger.exception("Background sync failed")
+    finally:
+        sync_lock.release()
 
 
 @router.post(
@@ -58,6 +60,9 @@ async def _run_sync_in_background(payload: SyncRequest) -> None:
 async def sync_run(payload: SyncRequest) -> SyncStartResponse:
     if sync_lock.locked():
         raise HTTPException(status_code=409, detail="Sync is already running")
+    # Take the lock here, not in the task: a second request arriving before the task
+    # starts must already see it held
+    await sync_lock.acquire()
     task = asyncio.create_task(_run_sync_in_background(payload))
     _background_tasks.add(task)
     task.add_done_callback(_background_tasks.discard)

@@ -38,11 +38,14 @@ async def db_session(db_engine):
 
 
 @pytest.fixture()
-async def client(db_engine):
+async def client(db_engine, monkeypatch):
+    from app.core import db
     from app.core.db import get_session
     from app.main import app
 
     session_factory = async_sessionmaker(db_engine, expire_on_commit=False)
+    # Background syncs open their own session via get_async_session(): keep them on the test DB
+    monkeypatch.setattr(db, "_async_session", session_factory)
 
     async def override_get_session():
         async with session_factory() as session:

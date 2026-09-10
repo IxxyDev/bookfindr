@@ -1,3 +1,4 @@
+import asyncio
 from datetime import date
 from uuid import uuid4
 
@@ -185,3 +186,47 @@ async def test_books_default_window_comes_from_publishers_config(
 async def test_root_page_shows_configured_window(client, ten_day_window):
     res = await client.get("/")
     assert "Последние 10 дней" in res.text
+
+
+@pytest.fixture()
+async def blocked_sync(monkeypatch):
+    """Replace run_sync with one that holds the lock until the test ends."""
+    from app.api import routes_sync
+
+    gate = asyncio.Event()
+    calls: list[dict] = []
+
+    async def fake_run_sync(_session, _config, **kwargs):
+        calls.append(kwargs)
+        await gate.wait()
+        return []
+
+    monkeypatch.setattr(routes_sync, "run_sync", fake_run_sync)
+    yield calls
+    gate.set()
+    await asyncio.gather(*routes_sync._background_tasks)
+
+
+async def test_sync_run_starts_once_and_reports_running(client, blocked_sync):
+    first, second = await asyncio.gather(
+        client.post("/sync/run", json={}), client.post("/sync/run", json={})
+    )
+    assert sorted([first.status_code, second.status_code]) == [202, 409]
+
+    status = await client.get("/sync/status")
+    assert status.json()["running"] is True
+
+
+async def test_sync_run_with_valid_api_key(client, blocked_sync, monkeypatch):
+    from app.core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "sync_api_key", "secret")
+    res = await client.post(
+        "/sync/run",
+        json={"dry_run": True, "sources": ["google_books"]},
+        headers={"X-Api-Key": "secret"},
+    )
+    assert res.status_code == 202
+    assert res.json() == {"status": "started", "publisher_id": None, "sources": ["google_books"]}
+    await asyncio.sleep(0)
+    assert blocked_sync == [{"publisher_id": None, "sources": ["google_books"], "dry_run": True}]
