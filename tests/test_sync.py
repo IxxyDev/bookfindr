@@ -154,3 +154,16 @@ async def test_dry_run_reports_real_counts_and_writes_no_books(db_session, monke
     assert (runs[0].status, runs[0].new_count, runs[0].updated_count) == ("success", 2, 0)
     assert (await db_session.scalars(select(Book))).all() == []
     assert (await db_session.scalars(select(FetchRun.new_count))).all() == [2]
+
+
+async def test_failed_connectors_mark_the_run_partial(db_session, monkeypatch):
+    errors = ["dmk_catalog: ValueError: bad page", f"bhv_store: HTTPStatusError: {LEAKY_ERROR}"]
+    monkeypatch.setattr(
+        sync, "fetch_connectors", _connectors_returning(_record("pub", "Kept"), errors=errors)
+    )
+
+    runs = await run_sync(db_session, _config("pub"))
+
+    assert (runs[0].status, runs[0].new_count) == ("partial", 1)
+    assert runs[0].error.startswith("dmk_catalog: ValueError: bad page; bhv_store: ")
+    assert "SECRET" not in runs[0].error
