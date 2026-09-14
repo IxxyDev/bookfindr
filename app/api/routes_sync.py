@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings, load_publishers
+from app.core.config import PublishersFile, get_publishers_config, get_settings, load_publishers
 from app.core.db import get_async_session, get_session
 from app.models.fetch_run import FetchRun
 from app.schemas.sync import (
@@ -57,7 +57,11 @@ async def _run_sync_in_background(payload: SyncRequest) -> None:
     status_code=202,
     dependencies=[Depends(_check_sync_api_key)],
 )
-async def sync_run(payload: SyncRequest) -> SyncStartResponse:
+async def sync_run(
+    payload: SyncRequest, config: PublishersFile = Depends(get_publishers_config)
+) -> SyncStartResponse:
+    if payload.publisher_id and payload.publisher_id not in {p.id for p in config.publishers}:
+        raise HTTPException(status_code=404, detail="Unknown publisher")
     if sync_lock.locked():
         raise HTTPException(status_code=409, detail="Sync is already running")
     # Take the lock here, not in the task: a second request arriving before the task

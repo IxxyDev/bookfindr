@@ -236,3 +236,18 @@ async def test_sync_run_rejects_unknown_source(client, blocked_sync):
     res = await client.post("/sync/run", json={"sources": ["google"]})
     assert res.status_code == 422
     assert blocked_sync == []
+
+
+async def test_sync_run_unknown_publisher_is_404(client, blocked_sync):
+    from app.core.config import PublisherConfig, PublishersFile, get_publishers_config
+    from app.main import app
+
+    app.dependency_overrides[get_publishers_config] = lambda: PublishersFile(
+        publishers=[PublisherConfig(id="known", name="Known")]
+    )
+    res = await client.post("/sync/run", json={"publisher_id": "nope"})
+    assert res.status_code == 404
+    assert blocked_sync == []
+
+    res = await client.post("/sync/run", json={"publisher_id": "known"})
+    assert res.status_code == 202
