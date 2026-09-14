@@ -1,18 +1,21 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel
+
+SyncSource = Literal["google_books", "open_library", "connectors"]
 
 
 class SyncRequest(BaseModel):
     publisher_id: str | None = None
-    sources: list[str] | None = None
+    sources: list[SyncSource] | None = None
     dry_run: bool = False
 
 
 class SyncStartResponse(BaseModel):
     status: str
     publisher_id: str | None = None
-    sources: list[str]
+    sources: list[SyncSource]
 
 
 class FetchRunSchema(BaseModel):

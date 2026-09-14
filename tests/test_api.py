@@ -230,3 +230,9 @@ async def test_sync_run_with_valid_api_key(client, blocked_sync, monkeypatch):
     assert res.json() == {"status": "started", "publisher_id": None, "sources": ["google_books"]}
     await asyncio.sleep(0)
     assert blocked_sync == [{"publisher_id": None, "sources": ["google_books"], "dry_run": True}]
+
+
+async def test_sync_run_rejects_unknown_source(client, blocked_sync):
+    res = await client.post("/sync/run", json={"sources": ["google"]})
+    assert res.status_code == 422
+    assert blocked_sync == []
