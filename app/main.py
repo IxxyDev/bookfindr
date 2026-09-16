@@ -16,6 +16,7 @@ from app.api.routes_stats import router as stats_router
 from app.api.routes_sync import router as sync_router
 from app.core.config import PublishersFile, get_publishers_config, load_publishers
 from app.core.db import get_async_session, init_db
+from app.services.publishers import sync_publishers
 from app.services.sync import run_sync, sync_lock
 
 loglevel = os.getenv("LOGLEVEL", "INFO").upper()
@@ -40,6 +41,9 @@ async def scheduled_sync_job() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    # The publisher dropdown must not stay empty on a fresh database until the first sync
+    async with get_async_session()() as session:
+        await sync_publishers(session, load_publishers())
     scheduler.add_job(
         scheduled_sync_job,
         "cron",
