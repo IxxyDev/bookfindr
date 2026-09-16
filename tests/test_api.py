@@ -77,12 +77,24 @@ async def test_book_detail_not_found(client):
     assert res.status_code == 404
 
 
-async def test_publishers(client, api_publisher):
+async def test_publishers_lists_configured_ids_in_config_order(client, db_session):
+    from app.core.config import PublisherConfig, PublishersFile, get_publishers_config
+    from app.main import app
+
+    for pid in ["alpha", "removed", "zeta"]:
+        db_session.add(Publisher(id=pid, name=pid.title()))
+    await db_session.commit()
+    app.dependency_overrides[get_publishers_config] = lambda: PublishersFile(
+        publishers=[
+            PublisherConfig(id="zeta", name="Zeta"),
+            PublisherConfig(id="not_synced_yet", name="New"),
+            PublisherConfig(id="alpha", name="Alpha"),
+        ]
+    )
+
     res = await client.get("/publishers")
     assert res.status_code == 200
-    data = res.json()
-    ids = [p["id"] for p in data]
-    assert "apipub" in ids
+    assert [p["id"] for p in res.json()] == ["zeta", "alpha"]
 
 
 async def test_stats(client, api_book):
