@@ -51,6 +51,10 @@ async def lifespan(app: FastAPI):
         minute=0,
         id="daily_sync",
         replace_existing=True,
+        # Run a start missed while the machine slept (the default 1 s grace skipped the day),
+        # but only once however many were missed
+        misfire_grace_time=None,
+        coalesce=True,
     )
     scheduler.start()
     yield

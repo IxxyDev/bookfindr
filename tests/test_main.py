@@ -47,3 +47,14 @@ async def test_startup_syncs_publishers_from_config(startup):
 
     async with session_factory() as session:
         assert (await session.scalars(select(Publisher.id))).all() == ["fresh"]
+
+
+async def test_daily_job_runs_after_a_missed_start(startup):
+    _, scheduler = startup
+    async with main.lifespan(main.app):
+        pass
+
+    [job] = scheduler.jobs
+    assert (job["trigger"], job["hour"], job["minute"]) == ("cron", 3, 0)
+    assert job["misfire_grace_time"] is None
+    assert job["coalesce"] is True
