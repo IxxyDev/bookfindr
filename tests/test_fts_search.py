@@ -138,3 +138,21 @@ async def test_fts_search_combines_with_filters_and_paginates(db_session, fts_bo
     page, total = await repo.list_with_count(filters, limit=1, offset=1)
     assert total == 2
     assert len(page) == 1
+
+
+async def test_like_fallback_searches_authors(db_session, fts_books, fts_publisher):
+    db_session.add(
+        Book(
+            id=str(uuid4()),
+            title="Python Crash Course",
+            authors=["Eric Matthes"],
+            publisher_id=fts_publisher.id,
+            published_date=date(2024, 6, 15),
+        )
+    )
+    await db_session.flush()
+    await db_session.execute(text("DROP TABLE book_fts"))
+
+    repo = BookRepository(db_session)
+    books, total = await repo.list_with_count(BookFilters(query="matthes"), limit=10, offset=0)
+    assert (total, [b.title for b in books]) == (1, ["Python Crash Course"])

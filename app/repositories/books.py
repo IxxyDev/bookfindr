@@ -66,6 +66,7 @@ class BookRepository:
         return or_(
             Book.title.ilike(pattern, escape="\\"),
             Book.description.ilike(pattern, escape="\\"),
+            Book.authors.ilike(pattern, escape="\\"),
         )
 
     async def _page(self, conditions: list, limit: int, offset: int) -> tuple[list[Book], int]:
