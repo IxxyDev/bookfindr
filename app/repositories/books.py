@@ -29,9 +29,12 @@ class BookRepository:
 
     @staticmethod
     def _sanitize_fts_query(query: str) -> str:
-        # FTS5 string syntax: wrap each token in quotes, doubling embedded quotes
-        tokens = query.replace('"', '""').split()
-        return " ".join(f'"{token}"' for token in tokens if token)
+        # FTS5 string syntax: wrap each token in quotes, doubling embedded quotes.
+        # The last token is a prefix ("pyth"*) so results follow the user's typing.
+        tokens = [f'"{token}"' for token in query.replace('"', '""').split()]
+        if tokens:
+            tokens[-1] += "*"
+        return " ".join(tokens)
 
     async def _fts_search(self, query: str, limit: int) -> list[str]:
         sanitized = self._sanitize_fts_query(query)

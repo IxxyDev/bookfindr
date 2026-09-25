@@ -103,3 +103,18 @@ async def test_whitespace_only_query_is_ignored(db_session, fts_books):
     repo = BookRepository(db_session)
     _, total = await repo.list_with_count(BookFilters(query="   "), limit=10, offset=0)
     assert total == len(fts_books)
+
+
+async def test_last_token_matches_as_prefix(db_session, fts_books):
+    repo = BookRepository(db_session)
+    books, total = await repo.list_with_count(BookFilters(query="Pyth"), limit=10, offset=0)
+    assert (total, [b.title for b in books]) == (1, ["Advanced Python Programming"])
+
+    _, total = await repo.list_with_count(BookFilters(query="deep di"), limit=10, offset=0)
+    assert total == 2
+
+
+async def test_only_the_last_token_is_a_prefix(db_session, fts_books):
+    repo = BookRepository(db_session)
+    _, total = await repo.list_with_count(BookFilters(query="Pyth internals"), limit=10, offset=0)
+    assert total == 0
