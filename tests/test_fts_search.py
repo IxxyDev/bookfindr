@@ -2,6 +2,7 @@ from datetime import date
 from uuid import uuid4
 
 import pytest
+from sqlalchemy import text
 
 from app.models.book import Book
 from app.models.publisher import Publisher
@@ -118,3 +119,22 @@ async def test_only_the_last_token_is_a_prefix(db_session, fts_books):
     repo = BookRepository(db_session)
     _, total = await repo.list_with_count(BookFilters(query="Pyth internals"), limit=10, offset=0)
     assert total == 0
+
+
+async def test_like_fallback_when_fts_index_is_missing(db_session, fts_books, caplog):
+    await db_session.execute(text("DROP TABLE book_fts"))
+    repo = BookRepository(db_session)
+    with caplog.at_level("WARNING"):
+        books, total = await repo.list_with_count(
+            BookFilters(query="kubernetes", language="en"), limit=10, offset=0
+        )
+    assert "FTS5 search failed" in caplog.text
+    assert (total, [b.title for b in books]) == (1, ["Kubernetes in Action"])
+
+
+async def test_fts_search_combines_with_filters_and_paginates(db_session, fts_books):
+    repo = BookRepository(db_session)
+    filters = BookFilters(query="deep", publisher_id="ftspub", date_from=date(2024, 1, 1))
+    page, total = await repo.list_with_count(filters, limit=1, offset=1)
+    assert total == 2
+    assert len(page) == 1

@@ -36,20 +36,6 @@ class BookRepository:
             tokens[-1] += "*"
         return " ".join(tokens)
 
-    async def _fts_search(self, query: str, limit: int) -> list[str]:
-        sanitized = self._sanitize_fts_query(query)
-        if not sanitized:
-            return []
-        sql = text(
-            "SELECT b.id FROM books b "
-            "JOIN book_fts ON book_fts.rowid = b.rowid "
-            "WHERE book_fts MATCH :query "
-            "ORDER BY bm25(book_fts) "
-            "LIMIT :limit"
-        )
-        result = await self._session.execute(sql, {"query": sanitized, "limit": limit})
-        return [row[0] for row in result.fetchall()]
-
     @staticmethod
     def _escape_like(value: str) -> str:
         return value.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_")
@@ -69,37 +55,20 @@ class BookRepository:
             conditions.append(Book.published_date <= filters.date_to)
         return conditions
 
-    async def _resolve_fts_ids(self, query: str, limit: int) -> tuple[list[str] | None, bool]:
-        """Return (fts_ids | None, is_empty). None signals LIKE fallback."""
-        try:
-            fts_ids = await self._fts_search(query, limit)
-            if fts_ids:
-                return fts_ids, False
-            return None, True
-        except OperationalError:
-            logger.warning("FTS5 search failed, falling back to LIKE", exc_info=True)
-            return None, False
+    def _fts_condition(self, query: str):
+        # A subquery on rowid (book_fts content_rowid): SQLite filters inside one statement
+        return text(
+            "books.rowid IN (SELECT rowid FROM book_fts WHERE book_fts MATCH :fts_query)"
+        ).bindparams(fts_query=self._sanitize_fts_query(query))
 
-    async def list_with_count(
-        self, filters: BookFilters, limit: int, offset: int
-    ) -> tuple[list[Book], int]:
-        conditions = self._build_conditions(filters)
-        query = (filters.query or "").strip()
-        if query:
-            fts_ids, is_empty = await self._resolve_fts_ids(query, 10000)
-            if is_empty:
-                return [], 0
-            if fts_ids is not None:
-                conditions.append(Book.id.in_(fts_ids))
-            else:
-                pattern = f"%{self._escape_like(query)}%"
-                conditions.append(
-                    or_(
-                        Book.title.ilike(pattern, escape="\\"),
-                        Book.description.ilike(pattern, escape="\\"),
-                    )
-                )
+    def _like_condition(self, query: str):
+        pattern = f"%{self._escape_like(query)}%"
+        return or_(
+            Book.title.ilike(pattern, escape="\\"),
+            Book.description.ilike(pattern, escape="\\"),
+        )
 
+    async def _page(self, conditions: list, limit: int, offset: int) -> tuple[list[Book], int]:
         count_stmt = select(func.count()).select_from(Book)
         if conditions:
             count_stmt = count_stmt.where(and_(*conditions))
@@ -115,6 +84,19 @@ class BookRepository:
         )
         books = (await self._session.scalars(list_stmt)).all()
         return books, total
+
+    async def list_with_count(
+        self, filters: BookFilters, limit: int, offset: int
+    ) -> tuple[list[Book], int]:
+        conditions = self._build_conditions(filters)
+        query = (filters.query or "").strip()
+        if not query:
+            return await self._page(conditions, limit, offset)
+        try:
+            return await self._page([*conditions, self._fts_condition(query)], limit, offset)
+        except OperationalError:
+            logger.warning("FTS5 search failed, falling back to LIKE", exc_info=True)
+            return await self._page([*conditions, self._like_condition(query)], limit, offset)
 
     async def list(self, filters: BookFilters, limit: int, offset: int) -> list[Book]:
         books, _ = await self.list_with_count(filters, limit, offset)
