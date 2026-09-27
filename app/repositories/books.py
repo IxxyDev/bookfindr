@@ -79,7 +79,8 @@ class BookRepository:
         if conditions:
             list_stmt = list_stmt.where(and_(*conditions))
         list_stmt = (
-            list_stmt.order_by(Book.published_date.desc(), Book.created_at.desc())
+            # id last: equal dates must not reorder between pages
+            list_stmt.order_by(Book.published_date.desc(), Book.created_at.desc(), Book.id)
             .limit(limit)
             .offset(offset)
         )

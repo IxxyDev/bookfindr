@@ -158,3 +158,23 @@ async def test_find_existing_ignores_dedupe_key_when_record_has_isbn(db_session,
     await db_session.flush()
 
     assert await repo.find_existing("9780000000002", None, "dk-same") is None
+
+
+async def test_list_breaks_ties_by_id_so_pages_do_not_overlap(db_session, repo, publisher):
+    from datetime import datetime
+
+    created = datetime(2026, 1, 1)
+    for book_id in ["c", "a", "b"]:
+        db_session.add(
+            Book(
+                id=book_id,
+                title=book_id,
+                publisher_id=publisher.id,
+                published_date=date(2026, 1, 1),
+                created_at=created,
+            )
+        )
+    await db_session.flush()
+
+    pages = [await repo.list_with_count(BookFilters(), limit=1, offset=i) for i in range(3)]
+    assert [books[0].id for books, _ in pages] == ["a", "b", "c"]
