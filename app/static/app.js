@@ -187,20 +187,52 @@ async function fetchBooks(reset = false) {
   }
 }
 
-function escapeHtml(text) {
-  const div = document.createElement("div");
-  div.textContent = text;
-  return div.innerHTML;
+// Builds an element; string children become text nodes, so source data is never parsed as HTML.
+function el(tag, attrs = {}, ...children) {
+  const node = document.createElement(tag);
+  Object.entries(attrs).forEach(([name, value]) => {
+    if (value !== null && value !== undefined) node.setAttribute(name, value);
+  });
+  children.forEach((child) => {
+    if (child !== null && child !== undefined) node.append(child);
+  });
+  return node;
+}
+
+// Only http(s) links and images: a source could hand us a javascript: URL.
+function safeUrl(value) {
+  if (!value) return null;
+  try {
+    const url = new URL(value, window.location.href);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.href : null;
+  } catch {
+    return null;
+  }
 }
 
 function highlightTerms(text, query) {
-  if (!query || !text) return escapeHtml(text || "");
-  const escaped = escapeHtml(text);
-  const terms = query.trim().split(/\s+/).filter(Boolean);
-  if (!terms.length) return escaped;
+  const fragment = document.createDocumentFragment();
+  const terms = (query || "").trim().split(/\s+/).filter(Boolean);
+  if (!text || !terms.length) {
+    fragment.append(text || "");
+    return fragment;
+  }
   const pattern = terms.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
-  const regex = new RegExp(`(${pattern})`, "gi");
-  return escaped.replace(regex, "<mark>$&</mark>");
+  // A capturing group keeps the matches in split(): they land on odd indexes
+  text.split(new RegExp(`(${pattern})`, "gi")).forEach((part, i) => {
+    fragment.append(i % 2 === 1 ? el("mark", {}, part) : part);
+  });
+  return fragment;
+}
+
+function buildBadges(item) {
+  return el(
+    "div",
+    { class: "badges" },
+    el("span", { class: "badge" }, state.publisherMap[item.publisher_id] || String(item.publisher_id)),
+    el("span", { class: "badge subtle" }, item.language || "—"),
+    el("span", { class: "badge subtle" }, item.published_date || "—")
+  );
 }
 
 function renderBooks(list) {
@@ -216,42 +248,42 @@ function renderBooks(list) {
   }
   const queryVal = document.getElementById("query")?.value || "";
   list.forEach((item) => {
-    const card = document.createElement("article");
-    card.className = "book";
     const titleText = item.title + (item.subtitle ? " — " + item.subtitle : "");
     const descText = item.description ? truncate(item.description, 260) : "Без описания";
-    card.innerHTML = `
-      <div class="cover">${item.cover_url ? `<img src="${escapeHtml(item.cover_url)}" alt="">` : '<div class="placeholder">No cover</div>'}</div>
-      <div class="meta">
-        <div class="title-row">
-          <h3>${highlightTerms(titleText, queryVal)}</h3>
-          <button class="ghost" data-id="${escapeHtml(item.id)}">Подробнее</button>
-        </div>
-        <div class="authors muted">${escapeHtml((item.authors || []).join(", ") || "—")}</div>
-        <div class="badges">
-          <span class="badge">${escapeHtml(state.publisherMap[item.publisher_id] || String(item.publisher_id))}</span>
-          <span class="badge subtle">${escapeHtml(item.language || "—")}</span>
-          <span class="badge subtle">${escapeHtml(item.published_date || "—")}</span>
-        </div>
-        <p class="desc">${highlightTerms(descText, queryVal)}</p>
-        <div class="links muted">${buildLinks(item)}</div>
-      </div>
-    `;
-    card.querySelector("button[data-id]").addEventListener("click", () => openDetail(item.id));
+    const coverUrl = safeUrl(item.cover_url);
+    const detailBtn = el("button", { class: "ghost" }, "Подробнее");
+    detailBtn.addEventListener("click", () => openDetail(item.id));
+    const card = el(
+      "article",
+      { class: "book" },
+      el(
+        "div",
+        { class: "cover" },
+        coverUrl ? el("img", { src: coverUrl, alt: "" }) : el("div", { class: "placeholder" }, "No cover")
+      ),
+      el(
+        "div",
+        { class: "meta" },
+        el("div", { class: "title-row" }, el("h3", {}, highlightTerms(titleText, queryVal)), detailBtn),
+        el("div", { class: "authors muted" }, (item.authors || []).join(", ") || "—"),
+        buildBadges(item),
+        el("p", { class: "desc" }, highlightTerms(descText, queryVal)),
+        el("div", { class: "links muted" }, ...buildLinks(item))
+      )
+    );
     booksEl.appendChild(card);
   });
 }
 
 function buildLinks(item) {
   const links = [];
-  if (item.info_url) {
-    links.push(
-      `<a href="${escapeHtml(item.info_url)}" target="_blank" rel="noopener noreferrer">Источник</a>`
-    );
+  const infoUrl = safeUrl(item.info_url);
+  if (infoUrl) {
+    links.push(el("a", { href: infoUrl, target: "_blank", rel: "noopener noreferrer" }, "Источник"));
   }
-  if (item.isbn_13) links.push(`ISBN13: ${escapeHtml(item.isbn_13)}`);
-  if (item.isbn_10) links.push(`ISBN10: ${escapeHtml(item.isbn_10)}`);
-  return links.join(" · ");
+  if (item.isbn_13) links.push(`ISBN13: ${item.isbn_13}`);
+  if (item.isbn_10) links.push(`ISBN10: ${item.isbn_10}`);
+  return links.flatMap((link, i) => (i ? [" · ", link] : [link]));
 }
 
 function truncate(text, limit) {
@@ -259,51 +291,46 @@ function truncate(text, limit) {
   return text.length > limit ? text.slice(0, limit) + "…" : text;
 }
 
+function infoCell(label, value) {
+  return el("div", {}, el("strong", {}, label), el("br"), value);
+}
+
 async function openDetail(bookId) {
   modal.classList.add("open");
   modalContent.innerHTML = "<p class='muted'>Загружаем…</p>";
   try {
-    const res = await fetch(`/books/${bookId}`);
+    const res = await fetch(`/books/${encodeURIComponent(bookId)}`);
     if (!res.ok) throw new Error("Failed to load book");
     const book = await res.json();
-    const coverHtml = book.cover_url
-      ? `<img class="detail-cover" src="${escapeHtml(book.cover_url)}" alt="">`
-      : "";
-    modalContent.innerHTML = `
-      <div class="detail-head">
-        <div>
-          ${coverHtml}
-          <h2>${escapeHtml(book.title)}${book.subtitle ? " — " + escapeHtml(book.subtitle) : ""}</h2>
-          <p class="muted">${escapeHtml((book.authors || []).join(", ") || "—")}</p>
-        </div>
-        <div class="badges">
-          <span class="badge">${escapeHtml(state.publisherMap[book.publisher_id] || String(book.publisher_id))}</span>
-          <span class="badge subtle">${escapeHtml(book.language || "—")}</span>
-          <span class="badge subtle">${escapeHtml(book.published_date || "—")}</span>
-        </div>
-      </div>
-      <p>${escapeHtml(book.description || "Без описания")}</p>
-      <div class="info-grid">
-        <div><strong>ISBN13</strong><br>${escapeHtml(book.isbn_13 || "—")}</div>
-        <div><strong>ISBN10</strong><br>${escapeHtml(book.isbn_10 || "—")}</div>
-        <div><strong>Страниц</strong><br>${escapeHtml(String(book.page_count || "—"))}</div>
-        <div><strong>Темы</strong><br>${escapeHtml((book.subjects || []).join(", ") || "—")}</div>
-      </div>
-      <div class="sources">
-        <h4>Источники</h4>
-        <ul>
-          ${(book.sources || [])
-            .map(
-              (s) =>
-                `<li><strong>${escapeHtml(s.source)}</strong> — ${escapeHtml(s.source_key || "—")} (${
-                  escapeHtml(s.fetched_at || "")
-                })</li>`
-            )
-            .join("")}
-        </ul>
-      </div>
-      <div class="links muted">${buildLinks(book)}</div>
-    `;
+    const coverUrl = safeUrl(book.cover_url);
+    const sources = (book.sources || []).map((s) =>
+      el("li", {}, el("strong", {}, s.source), ` — ${s.source_key || "—"} (${s.fetched_at || ""})`)
+    );
+    modalContent.replaceChildren(
+      el(
+        "div",
+        { class: "detail-head" },
+        el(
+          "div",
+          {},
+          coverUrl ? el("img", { class: "detail-cover", src: coverUrl, alt: "" }) : null,
+          el("h2", {}, book.title + (book.subtitle ? " — " + book.subtitle : "")),
+          el("p", { class: "muted" }, (book.authors || []).join(", ") || "—")
+        ),
+        buildBadges(book)
+      ),
+      el("p", {}, book.description || "Без описания"),
+      el(
+        "div",
+        { class: "info-grid" },
+        infoCell("ISBN13", book.isbn_13 || "—"),
+        infoCell("ISBN10", book.isbn_10 || "—"),
+        infoCell("Страниц", String(book.page_count || "—")),
+        infoCell("Темы", (book.subjects || []).join(", ") || "—")
+      ),
+      el("div", { class: "sources" }, el("h4", {}, "Источники"), el("ul", {}, ...sources)),
+      el("div", { class: "links muted" }, ...buildLinks(book))
+    );
   } catch (err) {
     console.error(err);
     modalContent.innerHTML = "<p class='muted'>Не удалось загрузить книгу</p>";
