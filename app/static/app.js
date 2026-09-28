@@ -6,6 +6,7 @@ const state = {
   offset: 0,
   loading: false,
   hasMore: true,
+  controller: null,
 };
 
 const booksEl = document.getElementById("books");
@@ -144,7 +145,11 @@ function showSkeletons(count) {
 }
 
 async function fetchBooks(reset = false) {
-  if (state.loading) return;
+  // "Load more" waits for the page in flight; a new query replaces it, so the latest one wins
+  if (state.loading && !reset) return;
+  if (state.controller) state.controller.abort();
+  const controller = new AbortController();
+  state.controller = controller;
   state.loading = true;
   statusEl.textContent = "Загружаем…";
   if (reset) {
@@ -156,7 +161,7 @@ async function fetchBooks(reset = false) {
   }
   try {
     const params = buildParams();
-    const res = await fetch("/books?" + params.toString());
+    const res = await fetch("/books?" + params.toString(), { signal: controller.signal });
     if (!res.ok) throw new Error("Failed to load");
     const data = await res.json();
 
@@ -180,10 +185,14 @@ async function fetchBooks(reset = false) {
       totalEl.textContent = "";
     }
   } catch (err) {
+    if (err.name === "AbortError") return;
     console.error(err);
     statusEl.textContent = "Ошибка загрузки";
   } finally {
-    state.loading = false;
+    if (state.controller === controller) {
+      state.controller = null;
+      state.loading = false;
+    }
   }
 }
 
