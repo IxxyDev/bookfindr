@@ -175,7 +175,9 @@ async function fetchBooks(reset = false) {
     }
     renderBooks(state.books);
     state.offset += data.length;
-    state.hasMore = data.length === state.limit;
+    // A full last page used to show "load more" that then loaded nothing
+    const total = Number.parseInt(totalCount ?? "", 10);
+    state.hasMore = Number.isNaN(total) ? data.length === state.limit : state.offset < total;
     loadMoreBtn.style.display = state.hasMore ? "inline-flex" : "none";
     statusEl.textContent = state.books.length ? `${state.books.length} книг` : "Ничего не найдено";
 
