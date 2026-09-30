@@ -378,6 +378,11 @@ async function syncNow() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ publisher_id: publisherSelect.value || null }),
     });
+    if (res.status === 403) {
+      // SYNC_API_KEY is set: the page has no key to send
+      statusEl.textContent = "Синк защищён ключом, запустите через API";
+      return;
+    }
     if (!res.ok && res.status !== 409) throw new Error("Sync start failed");
     statusEl.textContent = "Синхронизация запущена…";
     const finished = await waitForSyncToFinish();
