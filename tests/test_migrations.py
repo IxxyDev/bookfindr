@@ -171,3 +171,23 @@ async def test_migration_0004_scrubs_query_strings_from_fetch_run_errors(tmp_pat
         errors = dict((await conn.execute(text("SELECT id, error FROM fetch_runs"))).all())
     await engine.dispose()
     assert errors == {"leaky": "for url 'https://example.com/v1?<redacted>'", "clean": None}
+
+
+async def test_migration_0005_normalizes_languages(tmp_path):
+    codes = {"b1": "eng", "b2": "en-US", "b3": "ru", "b4": None, "b5": "XX"}
+
+    def seed(sync_conn):
+        _insert(sync_conn, "publishers", id="pub", name="Pub")
+        for book_id, code in codes.items():
+            _insert(
+                sync_conn, "books", id=book_id, title=book_id, publisher_id="pub", language=code
+            )
+
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'langs.db'}")
+    async with engine.begin() as conn:
+        await conn.run_sync(run_migrations, "0004")
+        await conn.run_sync(seed)
+        await conn.run_sync(run_migrations)
+        langs = dict((await conn.execute(text("SELECT id, language FROM books"))).all())
+    await engine.dispose()
+    assert langs == {"b1": "en", "b2": "en", "b3": "ru", "b4": None, "b5": "xx"}

@@ -263,3 +263,15 @@ def test_build_dedupe_key_without_authors():
     record = _make_record(title="Изучаем Python, 5-е издание", publisher_id="dmk", authors=[])
     expected = hashlib.sha1("изучаем python 5 е издание|dmk|".encode()).hexdigest()
     assert build_dedupe_key(record) == expected
+
+
+async def test_upsert_stores_two_letter_language(db_session, sample_publisher):
+    from app.services.books import upsert_records
+
+    await upsert_records(db_session, [_make_record(language="eng", isbn_13="9780000000001")])
+    await upsert_records(
+        db_session, [_make_record(title="Other", language="RU-ru", isbn_13="9780000000002")]
+    )
+    await db_session.commit()
+
+    assert sorted((await db_session.scalars(select(Book.language))).all()) == ["en", "ru"]

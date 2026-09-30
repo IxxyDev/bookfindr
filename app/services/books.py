@@ -12,6 +12,7 @@ from app.models.book import Book
 from app.models.book_source import BookSource
 from app.repositories.books import BookRepository
 from app.services.types import BookRecord, source_priority
+from app.utils.lang import normalize_language
 
 logger = logging.getLogger(__name__)
 
@@ -158,6 +159,7 @@ async def upsert_records(session: AsyncSession, records: Iterable[BookRecord]) -
     new_count = 0
     updated_count = 0
     for record in records:
+        record.language = normalize_language(record.language)
         record.dedupe_key = build_dedupe_key(record)
         try:
             outcome = await _upsert_one(session, repo, record)
