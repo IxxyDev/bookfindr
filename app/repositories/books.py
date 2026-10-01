@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.book import Book
 from app.models.book_source import BookSource
+from app.utils.lang import normalize_language
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,7 @@ class BookRepository:
         if filters.publisher_id:
             conditions.append(Book.publisher_id == filters.publisher_id)
         if filters.language:
-            conditions.append(Book.language == filters.language)
+            conditions.append(Book.language == normalize_language(filters.language))
         if filters.subject:
             escaped = self._escape_like(filters.subject)
             conditions.append(Book.subjects.like(f"%{escaped}%", escape="\\"))

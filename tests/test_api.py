@@ -263,3 +263,9 @@ async def test_sync_run_unknown_publisher_is_404(client, blocked_sync):
 
     res = await client.post("/sync/run", json={"publisher_id": "known"})
     assert res.status_code == 202
+
+
+async def test_books_language_filter_is_normalized(client, api_book):
+    for code in ["en", "ENG", "en-GB"]:
+        res = await client.get("/books", params={"language": code})
+        assert [b["title"] for b in res.json()] == ["API Test Book"], code
