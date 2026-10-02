@@ -37,3 +37,24 @@ def test_load_publishers_window_defaults_to_settings(tmp_path, monkeypatch):
 
     path.write_text("publishers: []\nwindow_days: 45\n")
     assert load_publishers(str(path)).window_days == 45
+
+
+def test_relative_paths_resolve_against_project_root():
+    from app.core.config import PROJECT_ROOT
+
+    settings = Settings(database_url="sqlite+aiosqlite:///./data/x.db", publishers_file="pubs.yml")
+    assert settings.database_url == f"sqlite+aiosqlite:///{PROJECT_ROOT / 'data' / 'x.db'}"
+    assert settings.publishers_file == str(PROJECT_ROOT / "pubs.yml")
+
+
+def test_absolute_and_memory_database_urls_are_kept(tmp_path):
+    absolute = f"sqlite+aiosqlite:///{tmp_path / 'x.db'}"
+    assert Settings(database_url=absolute).database_url == absolute
+    assert Settings(database_url="sqlite+aiosqlite://").database_url == "sqlite+aiosqlite://"
+    assert (
+        Settings(database_url="sqlite+aiosqlite:///:memory:").database_url
+        == "sqlite+aiosqlite:///:memory:"
+    )
+    assert Settings(publishers_file=str(tmp_path / "p.yml")).publishers_file == str(
+        tmp_path / "p.yml"
+    )

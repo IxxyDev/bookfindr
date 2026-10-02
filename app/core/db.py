@@ -2,7 +2,6 @@ import asyncio
 import logging
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
-from pathlib import Path
 
 from alembic import command
 from alembic.config import Config as AlembicConfig
@@ -15,11 +14,10 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-from app.core.config import get_settings
+from app.core.config import PROJECT_ROOT, get_settings
 
 logger = logging.getLogger(__name__)
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ALEMBIC_INI = PROJECT_ROOT / "alembic.ini"
 # Revision that matches the schema create_all() produced before Alembic was introduced;
 # migrations/env.py stamps databases that already have these tables but no version row.
