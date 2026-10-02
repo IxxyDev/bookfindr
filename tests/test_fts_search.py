@@ -54,33 +54,35 @@ async def fts_books(db_session, fts_publisher) -> list[Book]:
 
 async def test_fts_search_by_title(db_session, fts_books):
     repo = BookRepository(db_session)
-    result = await repo.list(BookFilters(query="Python"), limit=50, offset=0)
+    result, _ = await repo.list_with_count(BookFilters(query="Python"), limit=50, offset=0)
     titles = [b.title for b in result]
     assert "Advanced Python Programming" in titles
 
 
 async def test_fts_search_by_description(db_session, fts_books):
     repo = BookRepository(db_session)
-    result = await repo.list(BookFilters(query="containerized"), limit=50, offset=0)
+    result, _ = await repo.list_with_count(BookFilters(query="containerized"), limit=50, offset=0)
     titles = [b.title for b in result]
     assert "Kubernetes in Action" in titles
 
 
 async def test_fts_search_no_results(db_session, fts_books):
     repo = BookRepository(db_session)
-    result = await repo.list(BookFilters(query="nonexistentterm12345"), limit=50, offset=0)
+    result, _ = await repo.list_with_count(
+        BookFilters(query="nonexistentterm12345"), limit=50, offset=0
+    )
     assert len(result) == 0
 
 
 async def test_fts_count(db_session, fts_books):
     repo = BookRepository(db_session)
-    count = await repo.count(BookFilters(query="Python"))
+    _, count = await repo.list_with_count(BookFilters(query="Python"), limit=1, offset=0)
     assert count >= 1
 
 
 async def test_fts_search_multiple_terms(db_session, fts_books):
     repo = BookRepository(db_session)
-    result = await repo.list(BookFilters(query="deep dive"), limit=50, offset=0)
+    result, _ = await repo.list_with_count(BookFilters(query="deep dive"), limit=50, offset=0)
     assert len(result) >= 1
 
 

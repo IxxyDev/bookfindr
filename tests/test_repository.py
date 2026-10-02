@@ -44,36 +44,38 @@ async def books(db_session, publisher) -> list[Book]:
 
 
 async def test_list_no_filters(repo, books):
-    result = await repo.list(BookFilters(), limit=50, offset=0)
+    result, _ = await repo.list_with_count(BookFilters(), limit=50, offset=0)
     assert len(result) == 5
 
 
 async def test_list_filter_by_publisher(repo, books):
-    result = await repo.list(BookFilters(publisher_id="testpub"), limit=50, offset=0)
+    result, _ = await repo.list_with_count(BookFilters(publisher_id="testpub"), limit=50, offset=0)
     assert len(result) == 5
 
-    result = await repo.list(BookFilters(publisher_id="nonexistent"), limit=50, offset=0)
+    result, _ = await repo.list_with_count(
+        BookFilters(publisher_id="nonexistent"), limit=50, offset=0
+    )
     assert len(result) == 0
 
 
 async def test_list_filter_by_language(repo, books):
-    result = await repo.list(BookFilters(language="en"), limit=50, offset=0)
+    result, _ = await repo.list_with_count(BookFilters(language="en"), limit=50, offset=0)
     assert len(result) == 3  # indices 0, 2, 4
 
 
 async def test_list_pagination(repo, books):
-    page1 = await repo.list(BookFilters(), limit=2, offset=0)
+    page1, _ = await repo.list_with_count(BookFilters(), limit=2, offset=0)
     assert len(page1) == 2
 
-    page2 = await repo.list(BookFilters(), limit=2, offset=2)
+    page2, _ = await repo.list_with_count(BookFilters(), limit=2, offset=2)
     assert len(page2) == 2
 
-    page3 = await repo.list(BookFilters(), limit=2, offset=4)
+    page3, _ = await repo.list_with_count(BookFilters(), limit=2, offset=4)
     assert len(page3) == 1
 
 
 async def test_list_date_range(repo, books):
-    result = await repo.list(
+    result, _ = await repo.list_with_count(
         BookFilters(date_from=date(2024, 6, 3), date_to=date(2024, 6, 5)),
         limit=50,
         offset=0,

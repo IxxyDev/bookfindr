@@ -101,14 +101,6 @@ class BookRepository:
             logger.warning("FTS5 search failed, falling back to LIKE", exc_info=True)
             return await self._page([*conditions, self._like_condition(query)], limit, offset)
 
-    async def list(self, filters: BookFilters, limit: int, offset: int) -> list[Book]:
-        books, _ = await self.list_with_count(filters, limit, offset)
-        return books
-
-    async def count(self, filters: BookFilters) -> int:
-        _, total = await self.list_with_count(filters, limit=1, offset=0)
-        return total
-
     async def get(self, book_id: str) -> Book | None:
         return await self._session.get(Book, book_id)
 
