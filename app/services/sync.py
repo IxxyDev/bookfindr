@@ -168,12 +168,27 @@ async def run_sync(
     return runs
 
 
+async def run_locked_sync(
+    publisher_id: str | None = None, sources: list[str] | None = None, dry_run: bool = False
+) -> list[FetchRun]:
+    """Sync in a session of its own. The caller has acquired sync_lock; it is released here.
+
+    Acquire and release are split so /sync/run can take the lock before spawning the task.
+    """
+    try:
+        config = load_publishers()
+        async with get_async_session()() as session:
+            return await run_sync(
+                session, config, publisher_id=publisher_id, sources=sources, dry_run=dry_run
+            )
+    finally:
+        sync_lock.release()
+
+
 async def run_once_from_cli(publisher_id: str | None = None, dry_run: bool = False) -> None:
     await init_db()
-    config = load_publishers()
-    async with sync_lock:
-        async with get_async_session()() as session:
-            await run_sync(session, config, publisher_id=publisher_id, dry_run=dry_run)
+    await sync_lock.acquire()
+    await run_locked_sync(publisher_id=publisher_id, dry_run=dry_run)
 
 
 def main() -> None:

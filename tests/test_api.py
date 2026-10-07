@@ -204,6 +204,7 @@ async def test_root_page_shows_configured_window(client, ten_day_window):
 async def blocked_sync(monkeypatch):
     """Replace run_sync with one that holds the lock until the test ends."""
     from app.api import routes_sync
+    from app.services import sync
 
     gate = asyncio.Event()
     calls: list[dict] = []
@@ -213,7 +214,7 @@ async def blocked_sync(monkeypatch):
         await gate.wait()
         return []
 
-    monkeypatch.setattr(routes_sync, "run_sync", fake_run_sync)
+    monkeypatch.setattr(sync, "run_sync", fake_run_sync)
     yield calls
     gate.set()
     await asyncio.gather(*routes_sync._background_tasks)

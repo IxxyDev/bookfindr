@@ -6,8 +6,8 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import PublishersFile, get_publishers_config, get_settings, load_publishers
-from app.core.db import get_async_session, get_session
+from app.core.config import PublishersFile, get_publishers_config, get_settings
+from app.core.db import get_session
 from app.models.fetch_run import FetchRun
 from app.schemas.sync import (
     FetchRunSchema,
@@ -15,7 +15,7 @@ from app.schemas.sync import (
     SyncStartResponse,
     SyncStatusResponse,
 )
-from app.services.sync import run_sync, sync_lock
+from app.services.sync import run_locked_sync, sync_lock
 
 logger = logging.getLogger(__name__)
 
@@ -34,21 +34,12 @@ async def _check_sync_api_key(x_api_key: str | None = Header(None)) -> None:
 
 
 async def _run_sync_in_background(payload: SyncRequest) -> None:
-    """Runs with sync_lock already held by the handler; releases it when done."""
     try:
-        config = load_publishers()
-        async with get_async_session()() as session:
-            await run_sync(
-                session,
-                config,
-                publisher_id=payload.publisher_id,
-                sources=payload.sources,
-                dry_run=payload.dry_run,
-            )
+        await run_locked_sync(
+            publisher_id=payload.publisher_id, sources=payload.sources, dry_run=payload.dry_run
+        )
     except Exception:
         logger.exception("Background sync failed")
-    finally:
-        sync_lock.release()
 
 
 @router.post(

@@ -17,7 +17,7 @@ from app.api.routes_sync import router as sync_router
 from app.core.config import PublishersFile, get_publishers_config, load_publishers
 from app.core.db import get_async_session, init_db
 from app.services.publishers import sync_publishers
-from app.services.sync import run_sync, sync_lock
+from app.services.sync import run_locked_sync, sync_lock
 
 loglevel = os.getenv("LOGLEVEL", "INFO").upper()
 logging.basicConfig(level=getattr(logging, loglevel, logging.INFO))
@@ -32,10 +32,8 @@ async def scheduled_sync_job() -> None:
     if sync_lock.locked():
         logger.info("Skipping scheduled sync: another sync is already running")
         return
-    async with sync_lock:
-        config = load_publishers()
-        async with get_async_session()() as session:
-            await run_sync(session, config)
+    await sync_lock.acquire()
+    await run_locked_sync()
 
 
 @asynccontextmanager

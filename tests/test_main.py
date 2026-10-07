@@ -6,6 +6,7 @@ from app import main
 from app.core import db
 from app.core.config import PublisherConfig, PublishersFile
 from app.models.publisher import Publisher
+from app.services import sync
 
 
 class FakeScheduler:
@@ -58,3 +59,30 @@ async def test_daily_job_runs_after_a_missed_start(startup):
     assert (job["trigger"], job["hour"], job["minute"]) == ("cron", 3, 0)
     assert job["misfire_grace_time"] is None
     assert job["coalesce"] is True
+
+
+async def test_scheduled_job_runs_a_sync_and_releases_the_lock(startup, monkeypatch):
+    calls: list[dict] = []
+
+    async def fake_run_sync(_session, config, **kwargs):
+        calls.append({"publishers": [p.id for p in config.publishers], **kwargs})
+        return []
+
+    monkeypatch.setattr(sync, "run_sync", fake_run_sync)
+    monkeypatch.setattr(sync, "load_publishers", main.load_publishers)
+
+    await main.scheduled_sync_job()
+
+    assert calls == [
+        {"publishers": ["fresh"], "publisher_id": None, "sources": None, "dry_run": False}
+    ]
+    assert not sync.sync_lock.locked()
+
+
+async def test_scheduled_job_skips_while_a_sync_runs(startup, monkeypatch):
+    async def fail_run_sync(*_args, **_kwargs):
+        raise AssertionError("must not run")
+
+    monkeypatch.setattr(sync, "run_sync", fail_run_sync)
+    async with sync.sync_lock:
+        await main.scheduled_sync_job()
