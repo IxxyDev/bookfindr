@@ -1,3 +1,5 @@
+from collections.abc import Sequence
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -8,7 +10,7 @@ class PublisherRepository:
     def __init__(self, session: AsyncSession):
         self._session = session
 
-    async def list_all(self) -> list[Publisher]:
+    async def list_all(self) -> Sequence[Publisher]:
         return (await self._session.scalars(select(Publisher))).all()
 
     async def map_by_id(self) -> dict[str, Publisher]:

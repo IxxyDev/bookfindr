@@ -70,13 +70,13 @@ class BookRepository:
             Book.authors.ilike(pattern, escape="\\"),
         )
 
-    async def _page(self, conditions: list, limit: int, offset: int) -> tuple[list[Book], int]:
+    async def _page(self, conditions: list, limit: int, offset: int) -> tuple[Sequence[Book], int]:
         count_stmt = select(func.count()).select_from(Book)
         if conditions:
             count_stmt = count_stmt.where(and_(*conditions))
         total = (await self._session.scalar(count_stmt)) or 0
 
-        list_stmt: Select[Book] = select(Book)
+        list_stmt: Select[tuple[Book]] = select(Book)
         if conditions:
             list_stmt = list_stmt.where(and_(*conditions))
         list_stmt = (
@@ -90,7 +90,7 @@ class BookRepository:
 
     async def list_with_count(
         self, filters: BookFilters, limit: int, offset: int
-    ) -> tuple[list[Book], int]:
+    ) -> tuple[Sequence[Book], int]:
         conditions = self._build_conditions(filters)
         query = (filters.query or "").strip()
         if not query:
@@ -104,8 +104,8 @@ class BookRepository:
     async def get(self, book_id: str) -> Book | None:
         return await self._session.get(Book, book_id)
 
-    async def list_sources(self, book_id: str) -> list[BookSource]:
-        stmt: Select[BookSource] = select(BookSource).where(BookSource.book_id == book_id)
+    async def list_sources(self, book_id: str) -> Sequence[BookSource]:
+        stmt: Select[tuple[BookSource]] = select(BookSource).where(BookSource.book_id == book_id)
         return (await self._session.scalars(stmt)).all()
 
     async def find_existing(

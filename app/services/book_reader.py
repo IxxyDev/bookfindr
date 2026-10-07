@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,12 +11,12 @@ from app.repositories import BookFilters, BookRepository
 @dataclass
 class BookDetail:
     book: Book
-    sources: list[BookSource]
+    sources: Sequence[BookSource]
 
 
 @dataclass
 class BookListResult:
-    books: list[Book]
+    books: Sequence[Book]
     total: int
 
 
