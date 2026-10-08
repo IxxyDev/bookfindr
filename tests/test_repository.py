@@ -180,3 +180,17 @@ async def test_list_breaks_ties_by_id_so_pages_do_not_overlap(db_session, repo, 
 
     pages = [await repo.list_with_count(BookFilters(), limit=1, offset=i) for i in range(3)]
     assert [books[0].id for books, _ in pages] == ["a", "b", "c"]
+
+
+async def test_list_recent_runs_newest_first_and_limited(db_session):
+    from datetime import datetime, timedelta
+
+    from app.models.fetch_run import FetchRun
+    from app.repositories.fetch_runs import list_recent_runs
+
+    start = datetime(2026, 1, 1)
+    for i in range(3):
+        db_session.add(FetchRun(id=f"r{i}", status="success", started_at=start + timedelta(i)))
+    await db_session.flush()
+
+    assert [r.id for r in await list_recent_runs(db_session, limit=2)] == ["r2", "r1"]

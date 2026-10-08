@@ -3,12 +3,11 @@ import logging
 import secrets
 
 from fastapi import APIRouter, Depends, Header, HTTPException
-from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import PublishersFile, get_publishers_config, get_settings
 from app.core.db import get_session
-from app.models.fetch_run import FetchRun
+from app.repositories.fetch_runs import list_recent_runs
 from app.schemas.sync import (
     FetchRunSchema,
     SyncRequest,
@@ -70,8 +69,7 @@ async def sync_run(
 
 @router.get("/status", response_model=SyncStatusResponse)
 async def sync_status(session: AsyncSession = Depends(get_session)) -> SyncStatusResponse:
-    stmt = select(FetchRun).order_by(desc(FetchRun.started_at)).limit(20)
-    runs = (await session.scalars(stmt)).all()
+    runs = await list_recent_runs(session, limit=20)
     return SyncStatusResponse(
         running=sync_lock.locked(),
         last_runs=[FetchRunSchema.model_validate(r, from_attributes=True) for r in runs],

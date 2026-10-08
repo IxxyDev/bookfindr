@@ -1,8 +1,8 @@
-from sqlalchemy import desc, func, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.book import Book
-from app.models.fetch_run import FetchRun
+from app.repositories.fetch_runs import list_recent_runs
 from app.schemas.stats import PublisherCount, SourceCount, StatsResponse
 from app.schemas.sync import FetchRunSchema
 
@@ -26,11 +26,7 @@ async def get_stats(session: AsyncSession, last_runs_limit: int = 20) -> StatsRe
         )
     ).all()
 
-    runs = (
-        await session.scalars(
-            select(FetchRun).order_by(desc(FetchRun.started_at)).limit(last_runs_limit)
-        )
-    ).all()
+    runs = await list_recent_runs(session, limit=last_runs_limit)
 
     return StatsResponse(
         total_books=total,
