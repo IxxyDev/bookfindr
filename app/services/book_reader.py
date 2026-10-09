@@ -20,7 +20,7 @@ class BookListResult:
     total: int
 
 
-async def list_books(
+async def list_books_page(
     session: AsyncSession, filters: BookFilters, limit: int, offset: int
 ) -> BookListResult:
     repo = BookRepository(session)

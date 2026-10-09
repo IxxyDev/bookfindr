@@ -9,8 +9,7 @@ from app.core.db import get_session
 from app.models.book import Book
 from app.repositories import BookFilters
 from app.schemas.book import BookDetailSchema, BookSchema, BookSourceSchema
-from app.services.book_reader import get_book_detail
-from app.services.book_reader import list_books as list_books_service
+from app.services.book_reader import get_book_detail, list_books_page
 
 router = APIRouter(prefix="/books", tags=["books"])
 
@@ -38,7 +37,7 @@ async def list_books(
         date_from=date_from or default_from,
         date_to=date_to,
     )
-    result = await list_books_service(session, filters, limit=limit, offset=offset)
+    result = await list_books_page(session, filters, limit=limit, offset=offset)
     response.headers["X-Total-Count"] = str(result.total)
     return result.books
 
