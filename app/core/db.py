@@ -77,16 +77,11 @@ async def rebuild_fts_index() -> None:
         await conn.exec_driver_sql("INSERT INTO book_fts(book_fts) VALUES('rebuild')")
 
 
-FTS_OBJECTS_DROP_SQL = (
-    "DROP TRIGGER IF EXISTS books_ai",
-    "DROP TRIGGER IF EXISTS books_au",
-    "DROP TRIGGER IF EXISTS books_ad",
-    "DROP TABLE IF EXISTS book_fts",
-)
-
-
 def create_fts_objects(conn) -> None:
-    """Create FTS5 virtual table and triggers (idempotent; used by migration 0001 and tests)."""
+    """Create FTS5 virtual table and triggers (idempotent; tests build schemas with it).
+
+    Migration 0001 holds its own frozen copy of this SQL.
+    """
     conn.exec_driver_sql(
         """
         CREATE VIRTUAL TABLE IF NOT EXISTS book_fts

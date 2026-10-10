@@ -8,12 +8,54 @@ Create Date: 2026-09-19 22:04:37.354185
 import sqlalchemy as sa
 from alembic import op
 
-from app.core.db import FTS_OBJECTS_DROP_SQL, create_fts_objects
-
 revision = "0001"
 down_revision = None
 branch_labels = None
 depends_on = None
+
+# Frozen copy: a migration must not change when app code does
+FTS_CREATE_SQL = (
+    """
+    CREATE VIRTUAL TABLE IF NOT EXISTS book_fts
+    USING fts5(title, description, authors, content='books', content_rowid='rowid')
+    """,
+    """
+    CREATE TRIGGER IF NOT EXISTS books_ai AFTER INSERT ON books BEGIN
+        INSERT INTO book_fts(rowid, title, description, authors)
+        VALUES (
+            new.rowid,
+            coalesce(new.title,''),
+            coalesce(new.description,''),
+            coalesce(new.authors,'')
+        );
+    END
+    """,
+    """
+    CREATE TRIGGER IF NOT EXISTS books_au AFTER UPDATE ON books BEGIN
+        INSERT INTO book_fts(book_fts, rowid, title, description, authors)
+        VALUES('delete', old.rowid, old.title, old.description, old.authors);
+        INSERT INTO book_fts(rowid, title, description, authors)
+        VALUES (
+            new.rowid,
+            coalesce(new.title,''),
+            coalesce(new.description,''),
+            coalesce(new.authors,'')
+        );
+    END
+    """,
+    """
+    CREATE TRIGGER IF NOT EXISTS books_ad AFTER DELETE ON books BEGIN
+        INSERT INTO book_fts(book_fts, rowid, title, description, authors)
+        VALUES('delete', old.rowid, old.title, old.description, old.authors);
+    END
+    """,
+)
+FTS_DROP_SQL = (
+    "DROP TRIGGER IF EXISTS books_ai",
+    "DROP TRIGGER IF EXISTS books_au",
+    "DROP TRIGGER IF EXISTS books_ad",
+    "DROP TABLE IF EXISTS book_fts",
+)
 
 
 def upgrade() -> None:
@@ -104,12 +146,14 @@ def upgrade() -> None:
     with op.batch_alter_table("book_sources", schema=None) as batch_op:
         batch_op.create_index(batch_op.f("ix_book_sources_book_id"), ["book_id"], unique=False)
 
-    create_fts_objects(op.get_bind())
+    bind = op.get_bind()
+    for statement in FTS_CREATE_SQL:
+        bind.exec_driver_sql(statement)
 
 
 def downgrade() -> None:
     bind = op.get_bind()
-    for statement in FTS_OBJECTS_DROP_SQL:
+    for statement in FTS_DROP_SQL:
         bind.exec_driver_sql(statement)
     with op.batch_alter_table("book_sources", schema=None) as batch_op:
         batch_op.drop_index(batch_op.f("ix_book_sources_book_id"))

@@ -191,3 +191,28 @@ async def test_migration_0005_normalizes_languages(tmp_path):
         langs = dict((await conn.execute(text("SELECT id, language FROM books"))).all())
     await engine.dispose()
     assert langs == {"b1": "en", "b2": "en", "b3": "ru", "b4": None, "b5": "xx"}
+
+
+async def test_migrated_fts_index_follows_book_writes(tmp_path):
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'fts.db'}")
+    async with engine.begin() as conn:
+        await conn.run_sync(run_migrations)
+        await conn.run_sync(lambda c: _insert(c, "publishers", id="pub", name="Pub"))
+        await conn.run_sync(
+            lambda c: _insert(c, "books", id="b1", title="Rust in Action", publisher_id="pub")
+        )
+        await conn.execute(text("UPDATE books SET title = 'Go in Action' WHERE id = 'b1'"))
+        found = (
+            await conn.scalars(text("SELECT rowid FROM book_fts WHERE book_fts MATCH 'go'"))
+        ).all()
+        stale = (
+            await conn.scalars(text("SELECT rowid FROM book_fts WHERE book_fts MATCH 'rust'"))
+        ).all()
+        triggers = set(
+            (
+                await conn.scalars(text("SELECT name FROM sqlite_master WHERE type = 'trigger'"))
+            ).all()
+        )
+    await engine.dispose()
+    assert (len(found), stale) == (1, [])
+    assert triggers == {"books_ai", "books_au", "books_ad"}
