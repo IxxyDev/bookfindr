@@ -270,3 +270,24 @@ async def test_books_language_filter_is_normalized(client, api_book):
     for code in ["en", "ENG", "en-GB"]:
         res = await client.get("/books", params={"language": code})
         assert [b["title"] for b in res.json()] == ["API Test Book"], code
+
+
+async def test_timestamps_are_utc_with_offset(client, api_book_with_source, db_session):
+    from datetime import datetime, timedelta
+
+    from app.models.fetch_run import FetchRun
+
+    db_session.add(FetchRun(id="run", status="success", started_at=datetime(2026, 1, 1, 3)))
+    await db_session.commit()
+
+    book = (await client.get("/books")).json()[0]
+    detail = (await client.get(f"/books/{api_book_with_source.id}")).json()
+    run = (await client.get("/sync/status")).json()["last_runs"][0]
+    stamps = [
+        book["created_at"],
+        book["updated_at"],
+        detail["sources"][0]["fetched_at"],
+        run["started_at"],
+    ]
+    assert all(datetime.fromisoformat(s).utcoffset() == timedelta(0) for s in stamps), stamps
+    assert datetime.fromisoformat(run["started_at"]).hour == 3

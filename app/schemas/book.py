@@ -1,13 +1,15 @@
-from datetime import date, datetime
+from datetime import date
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from app.schemas.time import UtcDateTime
 
 
 class BookSourceSchema(BaseModel):
     id: str
     source: str
     source_key: str | None
-    fetched_at: datetime | None
+    fetched_at: UtcDateTime | None
     raw: dict | None
 
     model_config = ConfigDict(from_attributes=True)
@@ -32,8 +34,8 @@ class BookSchema(BaseModel):
     info_url: str | None
     source_primary: str | None
     source_keys: dict = Field(default_factory=dict)
-    created_at: datetime
-    updated_at: datetime
+    created_at: UtcDateTime
+    updated_at: UtcDateTime
 
     model_config = ConfigDict(from_attributes=True)
 

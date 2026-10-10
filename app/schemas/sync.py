@@ -1,7 +1,8 @@
-from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel
+
+from app.schemas.time import UtcDateTime
 
 SyncSource = Literal["google_books", "open_library", "connectors"]
 
@@ -22,8 +23,8 @@ class FetchRunSchema(BaseModel):
     id: str
     source: str | None = None
     publisher_id: str | None = None
-    started_at: datetime | None = None
-    finished_at: datetime | None = None
+    started_at: UtcDateTime | None = None
+    finished_at: UtcDateTime | None = None
     status: str
     error: str | None = None
     new_count: int = 0
