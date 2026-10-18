@@ -216,3 +216,23 @@ async def test_migrated_fts_index_follows_book_writes(tmp_path):
     await engine.dispose()
     assert (len(found), stale) == (1, [])
     assert triggers == {"books_ai", "books_au", "books_ad"}
+
+
+async def test_migrations_match_the_models(tmp_path):
+    from alembic.autogenerate import compare_metadata
+    from alembic.migration import MigrationContext
+
+    from app.core.db import include_in_autogenerate
+
+    def diff(sync_conn):
+        context = MigrationContext.configure(
+            sync_conn, opts={"render_as_batch": True, "include_name": include_in_autogenerate}
+        )
+        return compare_metadata(context, Base.metadata)
+
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'compare.db'}")
+    async with engine.begin() as conn:
+        await conn.run_sync(run_migrations)
+        changes = await conn.run_sync(diff)
+    await engine.dispose()
+    assert changes == []

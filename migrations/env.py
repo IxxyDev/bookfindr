@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from app import models  # noqa: F401  (registers tables on Base.metadata)
 from app.core.config import get_settings
-from app.core.db import BASELINE_REVISION, LEGACY_TABLES, Base
+from app.core.db import BASELINE_REVISION, LEGACY_TABLES, Base, include_in_autogenerate
 
 config = context.config
 target_metadata = Base.metadata
@@ -34,7 +34,12 @@ def _stamp_legacy_database(connection: Connection) -> None:
 
 def _run_migrations(connection: Connection) -> None:
     # render_as_batch: SQLite cannot ALTER most things, batch mode recreates the table
-    context.configure(connection=connection, target_metadata=target_metadata, render_as_batch=True)
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        render_as_batch=True,
+        include_name=include_in_autogenerate,
+    )
     with context.begin_transaction():
         _stamp_legacy_database(connection)
         context.run_migrations()

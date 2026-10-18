@@ -77,6 +77,12 @@ async def rebuild_fts_index() -> None:
         await conn.exec_driver_sql("INSERT INTO book_fts(book_fts) VALUES('rebuild')")
 
 
+def include_in_autogenerate(name: str | None, type_: str, _parent_names) -> bool:
+    """Alembic include_name hook: book_fts and its shadow tables are not ORM models,
+    so autogenerate must not propose dropping them."""
+    return not (type_ == "table" and name and name.startswith("book_fts"))
+
+
 def create_fts_objects(conn) -> None:
     """Create FTS5 virtual table and triggers (idempotent; tests build schemas with it).
 
