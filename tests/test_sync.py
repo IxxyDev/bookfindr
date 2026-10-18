@@ -192,3 +192,59 @@ def test_cli_rejects_unknown_source(monkeypatch):
     monkeypatch.setattr("sys.argv", ["sync", "--sources", "google"])
     with pytest.raises(SystemExit):
         sync.main()
+
+
+async def test_window_keeps_both_ends_and_drops_outside(db_session, monkeypatch):
+    today = date.today()
+    records = [
+        _record("pub", "today", today),
+        _record("pub", "first-day", today - timedelta(days=10)),
+        _record("pub", "too-old", today - timedelta(days=11)),
+        _record("pub", "future", today + timedelta(days=1)),
+    ]
+    undated = _record("pub", "undated")
+    undated.published_date = None
+    monkeypatch.setattr(sync, "fetch_connectors", _connectors_returning(*records, undated))
+    config = _config("pub")
+    config.window_days = 10
+
+    runs = await run_sync(db_session, config)
+
+    assert runs[0].new_count == 2
+    titles = (await db_session.scalars(select(Book.title).order_by(Book.title))).all()
+    assert titles == ["first-day", "today"]
+
+
+async def test_purge_deletes_out_of_window_books_with_their_sources(db_session, monkeypatch):
+    from app.models.book_source import BookSource
+    from app.models.publisher import Publisher
+
+    today = date.today()
+    db_session.add(Publisher(id="pub", name="PUB"))
+    await db_session.commit()
+    for book_id, published in [
+        ("old", today - timedelta(days=400)),
+        ("future", today + timedelta(days=30)),
+        ("current", today),
+    ]:
+        db_session.add(
+            Book(id=book_id, title=book_id, publisher_id="pub", published_date=published)
+        )
+        db_session.add(BookSource(id=f"src-{book_id}", book_id=book_id, source="dmk_html"))
+    await db_session.commit()
+
+    await run_sync(db_session, _config())
+
+    assert (await db_session.scalars(select(Book.id))).all() == ["current"]
+    assert (await db_session.scalars(select(BookSource.id))).all() == ["src-current"]
+
+
+async def test_publisher_filter_runs_only_that_publisher(db_session, monkeypatch):
+    monkeypatch.setattr(
+        sync, "fetch_connectors", _connectors_returning(_record("a", "A"), _record("b", "B"))
+    )
+
+    runs = await run_sync(db_session, _config("a", "b"), publisher_id="b")
+
+    assert [r.publisher_id for r in runs] == ["b"]
+    assert (await db_session.scalars(select(Book.title))).all() == ["B"]
