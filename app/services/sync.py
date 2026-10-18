@@ -4,6 +4,7 @@ import logging
 import re
 from collections.abc import Awaitable, Callable
 from datetime import UTC, date, datetime, timedelta
+from typing import get_args
 from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +16,7 @@ from app.core.config import PublisherConfig, PublishersFile, Settings, get_setti
 from app.core.db import get_async_session, init_db
 from app.models.fetch_run import FetchRun
 from app.repositories.fetch_runs import delete_runs_started_before
+from app.schemas.sync import SyncSource
 from app.services.books import purge_future_books, purge_outdated_books, upsert_records
 from app.services.publishers import sync_publishers
 from app.services.types import BookRecord
@@ -185,10 +187,12 @@ async def run_locked_sync(
         sync_lock.release()
 
 
-async def run_once_from_cli(publisher_id: str | None = None, dry_run: bool = False) -> None:
+async def run_once_from_cli(
+    publisher_id: str | None = None, sources: list[str] | None = None, dry_run: bool = False
+) -> None:
     await init_db()
     await sync_lock.acquire()
-    await run_locked_sync(publisher_id=publisher_id, dry_run=dry_run)
+    await run_locked_sync(publisher_id=publisher_id, sources=sources, dry_run=dry_run)
 
 
 def main() -> None:
@@ -198,9 +202,19 @@ def main() -> None:
         dest="publisher_id",
         help="Run only for a specific publisher",
     )
+    parser.add_argument(
+        "--sources",
+        nargs="+",
+        choices=get_args(SyncSource),
+        help="Sources to fetch (default: connectors)",
+    )
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
-    asyncio.run(run_once_from_cli(publisher_id=args.publisher_id, dry_run=args.dry_run))
+    asyncio.run(
+        run_once_from_cli(
+            publisher_id=args.publisher_id, sources=args.sources, dry_run=args.dry_run
+        )
+    )
 
 
 if __name__ == "__main__":

@@ -167,3 +167,28 @@ async def test_failed_connectors_mark_the_run_partial(db_session, monkeypatch):
     assert (runs[0].status, runs[0].new_count) == ("partial", 1)
     assert runs[0].error.startswith("dmk_catalog: ValueError: bad page; bhv_store: ")
     assert "SECRET" not in runs[0].error
+
+
+def test_cli_passes_sources_publisher_and_dry_run(monkeypatch):
+    calls: list[dict] = []
+
+    async def fake_run_once(**kwargs):
+        calls.append(kwargs)
+
+    monkeypatch.setattr(sync, "run_once_from_cli", fake_run_once)
+    argv = ["sync", "--publisher", "dmk", "--sources", "google_books", "connectors", "--dry-run"]
+    monkeypatch.setattr("sys.argv", argv)
+    sync.main()
+    monkeypatch.setattr("sys.argv", ["sync"])
+    sync.main()
+
+    assert calls == [
+        {"publisher_id": "dmk", "sources": ["google_books", "connectors"], "dry_run": True},
+        {"publisher_id": None, "sources": None, "dry_run": False},
+    ]
+
+
+def test_cli_rejects_unknown_source(monkeypatch):
+    monkeypatch.setattr("sys.argv", ["sync", "--sources", "google"])
+    with pytest.raises(SystemExit):
+        sync.main()
