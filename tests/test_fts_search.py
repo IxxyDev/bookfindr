@@ -77,13 +77,13 @@ async def test_fts_search_no_results(db_session, fts_books):
 async def test_fts_count(db_session, fts_books):
     repo = BookRepository(db_session)
     _, count = await repo.list_with_count(BookFilters(query="Python"), limit=1, offset=0)
-    assert count >= 1
+    assert count == 1
 
 
 async def test_fts_search_multiple_terms(db_session, fts_books):
     repo = BookRepository(db_session)
     result, _ = await repo.list_with_count(BookFilters(query="deep dive"), limit=50, offset=0)
-    assert len(result) >= 1
+    assert sorted(b.title for b in result) == ["Advanced Python Programming", "Database Internals"]
 
 
 async def test_fts_query_with_quotes_does_not_error(db_session, fts_books, caplog):

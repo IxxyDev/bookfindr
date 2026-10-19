@@ -50,18 +50,13 @@ async def test_books_empty(client):
 async def test_books_with_data(client, api_book):
     res = await client.get("/books")
     assert res.status_code == 200
-    data = res.json()
-    assert len(data) >= 1
-    titles = [b["title"] for b in data]
-    assert "API Test Book" in titles
+    assert [b["title"] for b in res.json()] == ["API Test Book"]
 
 
 async def test_books_total_count_header(client, api_book):
     res = await client.get("/books")
     assert res.status_code == 200
-    assert "x-total-count" in res.headers
-    total = int(res.headers["x-total-count"])
-    assert total >= 1
+    assert res.headers["x-total-count"] == "1"
 
 
 async def test_book_detail_found(client, api_book):
@@ -101,7 +96,7 @@ async def test_stats(client, api_book):
     res = await client.get("/stats")
     assert res.status_code == 200
     data = res.json()
-    assert data["total_books"] >= 1
+    assert data["total_books"] == 1
     publisher_ids = [row["publisher_id"] for row in data["by_publisher"]]
     assert api_book.publisher_id in publisher_ids
     sources = [row["source"] for row in data["by_source"]]
@@ -291,3 +286,35 @@ async def test_timestamps_are_utc_with_offset(client, api_book_with_source, db_s
     ]
     assert all(datetime.fromisoformat(s).utcoffset() == timedelta(0) for s in stamps), stamps
     assert datetime.fromisoformat(run["started_at"]).hour == 3
+
+
+async def test_books_date_from_overrides_the_default_window(
+    client, db_session, api_publisher, ten_day_window
+):
+    from datetime import timedelta
+
+    published = date.today() - timedelta(days=20)
+    db_session.add(
+        Book(id="stale", title="Stale", publisher_id=api_publisher.id, published_date=published)
+    )
+    await db_session.commit()
+
+    res = await client.get("/books", params={"date_from": published.isoformat()})
+    assert [b["title"] for b in res.json()] == ["Stale"]
+
+
+async def test_books_total_count_is_exact_beyond_the_page(client, db_session, api_publisher):
+    for i in range(3):
+        db_session.add(
+            Book(
+                id=f"b{i}",
+                title=f"B{i}",
+                publisher_id=api_publisher.id,
+                published_date=date.today(),
+            )
+        )
+    await db_session.commit()
+
+    res = await client.get("/books", params={"limit": 2})
+    assert len(res.json()) == 2
+    assert res.headers["x-total-count"] == "3"

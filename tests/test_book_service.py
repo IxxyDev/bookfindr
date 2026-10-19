@@ -69,7 +69,7 @@ def test_merge_book_higher_priority_overwrites():
         source_keys={},
     )
     record = _make_record(
-        source="connector",
+        source="dmk_html",
         title="New Title",
         description="New description",
     )
@@ -77,7 +77,7 @@ def test_merge_book_higher_priority_overwrites():
     assert changed is True
     assert merged.title == "New Title"
     assert merged.description == "New description"
-    assert merged.source_primary == "connector"
+    assert merged.source_primary == "dmk_html"
 
 
 def test_merge_book_lower_priority_no_overwrite():
@@ -86,7 +86,7 @@ def test_merge_book_lower_priority_no_overwrite():
         title="Existing Title",
         description="Existing desc",
         publisher_id="oreilly",
-        source_primary="connector",
+        source_primary="dmk_html",
         source_keys={},
     )
     record = _make_record(
@@ -94,10 +94,10 @@ def test_merge_book_lower_priority_no_overwrite():
         title="New Title",
         description="New desc",
     )
-    merged, changed = merge_book(book, record)
+    merged, _ = merge_book(book, record)
     assert merged.title == "Existing Title"
     assert merged.description == "Existing desc"
-    assert merged.description == "Existing desc"
+    assert merged.source_primary == "dmk_html"
 
 
 async def test_upsert_second_source_persists_source_keys(db_session, sample_publisher):
@@ -275,3 +275,60 @@ async def test_upsert_stores_two_letter_language(db_session, sample_publisher):
     await db_session.commit()
 
     assert sorted((await db_session.scalars(select(Book.language))).all()) == ["en", "ru"]
+
+
+async def test_upsert_skips_a_conflicting_record_and_keeps_the_batch(
+    db_session, sample_publisher, caplog
+):
+    from app.services.books import upsert_records
+
+    db_session.add_all(
+        [
+            Book(id="a", title="A", publisher_id="oreilly", isbn_13="9780000000001"),
+            Book(id="b", title="B", publisher_id="oreilly", isbn_10="0000000002"),
+        ]
+    )
+    await db_session.commit()
+    # Matches A by ISBN-13 but carries B's ISBN-10: merging it violates the unique index
+    conflicting = _make_record(
+        source="dmk_html", title="A", isbn_13="9780000000001", isbn_10="0000000002"
+    )
+    fine = _make_record(source="dmk_html", title="C", isbn_13="9780000000003")
+
+    with caplog.at_level("WARNING"):
+        counts = await upsert_records(db_session, [conflicting, fine])
+    await db_session.commit()
+
+    assert counts == (1, 0)
+    assert "Skipping conflicting record 'A'" in caplog.text
+    book_a = await db_session.get(Book, "a")
+    assert (book_a.isbn_10, book_a.source_primary) == (None, None)
+    titles = (await db_session.scalars(select(Book.title).order_by(Book.title))).all()
+    assert titles == ["A", "B", "C"]
+
+
+async def test_sync_publishers_adds_new_and_updates_existing(db_session):
+    from app.core.config import PublisherConfig, PublishersFile
+    from app.models.publisher import Publisher
+    from app.services.publishers import sync_publishers
+
+    db_session.add(Publisher(id="dmk", name="Old name", aliases=[], languages=[]))
+    await db_session.commit()
+    config = PublishersFile(
+        publishers=[
+            PublisherConfig(id="dmk", name="DMK Press", aliases=["ДМК"], languages=["ru"]),
+            PublisherConfig(id="piter", name="Piter"),
+        ]
+    )
+
+    saved = await sync_publishers(db_session, config)
+    db_session.expunge_all()
+
+    assert list(saved) == ["dmk", "piter"]
+    rows = {p.id: p for p in (await db_session.scalars(select(Publisher))).all()}
+    assert (rows["dmk"].name, rows["dmk"].aliases, rows["dmk"].languages) == (
+        "DMK Press",
+        ["ДМК"],
+        ["ru"],
+    )
+    assert rows["piter"].name == "Piter"
