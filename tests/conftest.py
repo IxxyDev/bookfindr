@@ -1,6 +1,7 @@
 from datetime import date
 from uuid import uuid4
 
+import httpx
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -13,6 +14,19 @@ from app.models.publisher import Publisher
 @pytest.fixture(scope="session")
 def anyio_backend():
     return "asyncio"
+
+
+@pytest.fixture(scope="session", autouse=True)
+def no_live_network():
+    """Only MockTransport/ASGITransport may answer: a real transport raises."""
+
+    def refuse(*_args, **_kwargs):
+        raise RuntimeError("live network in tests")
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(httpx.HTTPTransport, "handle_request", refuse)
+        patch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", refuse)
+        yield
 
 
 @pytest.fixture()
