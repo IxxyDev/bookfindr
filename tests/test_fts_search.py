@@ -158,3 +158,27 @@ async def test_like_fallback_searches_authors(db_session, fts_books, fts_publish
     repo = BookRepository(db_session)
     books, total = await repo.list_with_count(BookFilters(query="matthes"), limit=10, offset=0)
     assert (total, [b.title for b in books]) == (1, ["Python Crash Course"])
+
+
+async def test_cyrillic_authors_and_subjects_are_searchable(db_session, fts_publisher):
+    from app.services.books import upsert_records
+    from app.services.types import BookRecord
+
+    record = BookRecord(
+        source="dmk_html",
+        source_key="dmk-1",
+        publisher_id=fts_publisher.id,
+        title="Python в задачах",
+        authors=["Златопольский Д."],
+        subjects=["Программирование"],
+        published_date=date(2024, 6, 15),
+    )
+    await upsert_records(db_session, [record])
+    await db_session.flush()
+    repo = BookRepository(db_session)
+
+    by_author, _ = await repo.list_with_count(BookFilters(query="Златопольский"), 10, 0)
+    by_subject, _ = await repo.list_with_count(BookFilters(subject="Программ"), 10, 0)
+
+    assert [b.title for b in by_author] == ["Python в задачах"]
+    assert [b.title for b in by_subject] == ["Python в задачах"]

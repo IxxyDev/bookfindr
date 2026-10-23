@@ -236,3 +236,34 @@ async def test_migrations_match_the_models(tmp_path):
         changes = await conn.run_sync(diff)
     await engine.dispose()
     assert changes == []
+
+
+async def test_migration_0006_stores_json_text_unescaped(tmp_path):
+    import json
+
+    def seed(sync_conn):
+        _insert(sync_conn, "publishers", id="pub", name="Pub", aliases=json.dumps(["ДМК"]))
+        _insert(
+            sync_conn,
+            "books",
+            id="b1",
+            title="T",
+            publisher_id="pub",
+            authors=json.dumps(["Златопольский"]),
+            subjects='["Python"]',
+        )
+
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'json.db'}")
+    async with engine.begin() as conn:
+        await conn.run_sync(run_migrations, "0005")
+        await conn.run_sync(seed)
+        await conn.run_sync(run_migrations)
+        book = (await conn.execute(text("SELECT authors, subjects, topics FROM books"))).one()
+        aliases = await conn.scalar(text("SELECT aliases FROM publishers"))
+        found = await conn.scalar(
+            text("SELECT count(*) FROM book_fts WHERE book_fts MATCH 'Златопольский'")
+        )
+    await engine.dispose()
+    assert tuple(book) == ('["Златопольский"]', '["Python"]', None)
+    assert aliases == '["ДМК"]'
+    assert found == 1

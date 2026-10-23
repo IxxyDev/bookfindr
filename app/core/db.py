@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
@@ -48,15 +49,27 @@ def enable_sqlite_foreign_keys(engine: AsyncEngine) -> None:
         cursor.close()
 
 
+def _json_dumps(value) -> str:
+    # Readable non-ASCII: escaped JSON ("\\u0417...") hides Cyrillic from FTS and LIKE
+    return json.dumps(value, ensure_ascii=False)
+
+
+def make_engine(url: str) -> AsyncEngine:
+    """The app's engine setup; tests build theirs with it too."""
+    is_sqlite = url.startswith("sqlite")
+    connect_args = {"check_same_thread": False} if is_sqlite else {}
+    engine = create_async_engine(
+        url, echo=False, connect_args=connect_args, json_serializer=_json_dumps
+    )
+    if is_sqlite:
+        enable_sqlite_foreign_keys(engine)
+    return engine
+
+
 def get_engine() -> AsyncEngine:
     global _engine
     if _engine is None:
-        settings = get_settings()
-        is_sqlite = settings.database_url.startswith("sqlite")
-        connect_args = {"check_same_thread": False} if is_sqlite else {}
-        _engine = create_async_engine(settings.database_url, echo=False, connect_args=connect_args)
-        if is_sqlite:
-            enable_sqlite_foreign_keys(_engine)
+        _engine = make_engine(get_settings().database_url)
     return _engine
 
 

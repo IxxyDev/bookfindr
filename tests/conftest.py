@@ -3,9 +3,9 @@ from uuid import uuid4
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.core.db import Base, create_fts_objects, enable_sqlite_foreign_keys
+from app.core.db import Base, create_fts_objects, make_engine
 from app.models.book import Book
 from app.models.publisher import Publisher
 
@@ -17,11 +17,7 @@ def anyio_backend():
 
 @pytest.fixture()
 async def db_engine():
-    engine = create_async_engine(
-        "sqlite+aiosqlite://",
-        connect_args={"check_same_thread": False},
-    )
-    enable_sqlite_foreign_keys(engine)
+    engine = make_engine("sqlite+aiosqlite://")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(create_fts_objects)
