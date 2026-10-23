@@ -1,6 +1,6 @@
 from datetime import date
 
-from sqlalchemy import JSON, Date, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, Date, ForeignKey, Integer, String, Text, false
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -23,6 +23,10 @@ class Book(Base):
     page_count: Mapped[int | None] = mapped_column(Integer)
     print_type: Mapped[str | None] = mapped_column(String(50))
     published_date: Mapped[date | None] = mapped_column(Date, index=True)
+    # published_date is the day the book was first seen, not a publication date
+    published_date_is_sighting: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
     cover_url: Mapped[str | None] = mapped_column(String(500))
     info_url: Mapped[str | None] = mapped_column(String(500))
     source_primary: Mapped[str | None] = mapped_column(String(50))

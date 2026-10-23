@@ -67,6 +67,7 @@ Notes:
   page_count INTEGER,
   print_type TEXT,
   published_date DATE,
+  published_date_is_sighting BOOLEAN,  -- the date is when a connector first saw the book
   cover_url TEXT,
   info_url TEXT,
   source_primary TEXT,      -- source of the highest-priority record merged into the book
@@ -83,7 +84,7 @@ Source names: `google_books`, `open_library`, and one per connector (`oreilly_ap
 Dedup rules:
 1) Look up by isbn_13, then isbn_10.
 2) Only a record without any ISBN is matched by dedupe_key (a record with its own ISBN that matches by title is another edition).
-3) When merging, a higher-priority source overwrites fields; a lower one only fills missing ones. Empty strings and lists count as missing. A "first seen" date (connectors without a publication date) only fills a missing published_date. The dedupe_key is recomputed from the merged book.
+3) When merging, a higher-priority source overwrites fields; a lower one only fills missing ones. Empty strings and lists count as missing. A "first seen" date (connectors without a publication date) only fills a missing published_date; a real date from any source replaces a stored "first seen" one. The dedupe_key is recomputed from the merged book.
 
 ## Fetch pipeline (daily APScheduler + manual trigger)
 1. For each publisher and requested source (default: connectors only):

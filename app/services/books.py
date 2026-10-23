@@ -77,9 +77,20 @@ def merge_book(existing: Book, record: BookRecord) -> tuple[Book, bool]:
     set_if_better("isbn_13", record.isbn_13)
     set_if_better("page_count", record.page_count)
     set_if_better("print_type", record.print_type)
-    # A "first seen" date only fills a gap: it is no evidence against a date already known
-    if not record.published_date_is_sighting or existing.published_date is None:
-        set_if_better("published_date", record.published_date)
+    if record.published_date is not None:
+        if record.published_date_is_sighting:
+            # A "first seen" date only fills a gap: it is no evidence against a date already known
+            if existing.published_date is None:
+                existing.published_date = record.published_date
+                existing.published_date_is_sighting = True
+                updated = True
+        elif existing.published_date_is_sighting:
+            # A real date beats a "first seen" one whatever the source priority
+            existing.published_date = record.published_date
+            existing.published_date_is_sighting = False
+            updated = True
+        else:
+            set_if_better("published_date", record.published_date)
     set_if_better("cover_url", record.cover_url)
     set_if_better("info_url", record.info_url)
 
@@ -144,6 +155,7 @@ async def _upsert_one(
             page_count=record.page_count,
             print_type=record.print_type,
             published_date=record.published_date,
+            published_date_is_sighting=record.published_date_is_sighting,
             cover_url=record.cover_url,
             info_url=record.info_url,
             source_primary=record.source,

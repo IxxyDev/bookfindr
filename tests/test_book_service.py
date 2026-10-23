@@ -332,3 +332,63 @@ async def test_sync_publishers_adds_new_and_updates_existing(db_session):
         ["ru"],
     )
     assert rows["piter"].name == "Piter"
+
+
+def test_merge_book_real_date_replaces_a_sighting_date_from_any_source():
+    book = Book(
+        id=str(uuid4()),
+        title="Existing Title",
+        publisher_id="oreilly",
+        published_date=date(2026, 10, 1),
+        published_date_is_sighting=True,
+        source_primary="bhv_store",
+        source_keys={},
+    )
+    record = _make_record(source="open_library", published_date=date(2026, 9, 15))
+    merged, changed = merge_book(book, record)
+    assert changed is True
+    assert (merged.published_date, merged.published_date_is_sighting) == (date(2026, 9, 15), False)
+    assert merged.source_primary == "bhv_store"
+
+
+def test_merge_book_sighting_date_keeps_a_stored_sighting_date():
+    book = Book(
+        id=str(uuid4()),
+        title="Existing Title",
+        publisher_id="oreilly",
+        published_date=date(2026, 10, 1),
+        published_date_is_sighting=True,
+        source_primary="open_library",
+        source_keys={},
+    )
+    record = _make_record(
+        source="bhv_store", published_date=date(2026, 10, 20), published_date_is_sighting=True
+    )
+    merged, _ = merge_book(book, record)
+    assert (merged.published_date, merged.published_date_is_sighting) == (date(2026, 10, 1), True)
+
+
+async def test_upsert_stores_the_sighting_flag_and_a_real_date_clears_it(
+    db_session, sample_publisher
+):
+    from app.services.books import upsert_records
+
+    sighting = _make_record(
+        source="bhv_store",
+        isbn_13="9780000000001",
+        published_date=date(2026, 10, 1),
+        published_date_is_sighting=True,
+    )
+    await upsert_records(db_session, [sighting])
+    await db_session.commit()
+    book = await db_session.scalar(select(Book))
+    assert (book.published_date, book.published_date_is_sighting) == (date(2026, 10, 1), True)
+
+    real = _make_record(
+        source="open_library", isbn_13="9780000000001", published_date=date(2026, 9, 15)
+    )
+    _, updated = await upsert_records(db_session, [real])
+    await db_session.commit()
+    await db_session.refresh(book)
+    assert updated == 1
+    assert (book.published_date, book.published_date_is_sighting) == (date(2026, 9, 15), False)

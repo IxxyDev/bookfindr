@@ -267,3 +267,18 @@ async def test_migration_0006_stores_json_text_unescaped(tmp_path):
     assert tuple(book) == ('["Златопольский"]', '["Python"]', None)
     assert aliases == '["ДМК"]'
     assert found == 1
+
+
+async def test_migration_0007_marks_existing_dates_as_real(tmp_path):
+    def seed(sync_conn):
+        _insert(sync_conn, "publishers", id="pub", name="Pub")
+        _insert(sync_conn, "books", id="b1", title="T", publisher_id="pub")
+
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'sighting.db'}")
+    async with engine.begin() as conn:
+        await conn.run_sync(run_migrations, "0006")
+        await conn.run_sync(seed)
+        await conn.run_sync(run_migrations)
+        flag = await conn.scalar(text("SELECT published_date_is_sighting FROM books"))
+    await engine.dispose()
+    assert flag == 0
