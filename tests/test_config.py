@@ -58,3 +58,14 @@ def test_absolute_and_memory_database_urls_are_kept(tmp_path):
     assert Settings(publishers_file=str(tmp_path / "p.yml")).publishers_file == str(
         tmp_path / "p.yml"
     )
+
+
+def test_env_file_is_read_from_project_root_not_cwd(tmp_path, monkeypatch):
+    from app.core.config import PROJECT_ROOT
+
+    (tmp_path / ".env").write_text("APP_ENV=from-cwd\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("APP_ENV", raising=False)
+
+    assert Settings.model_config["env_file"] == PROJECT_ROOT / ".env"
+    assert Settings().app_env != "from-cwd"

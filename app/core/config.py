@@ -55,7 +55,7 @@ class Settings(BaseSettings):
     user_agent: str = "bookfindr/0.1"
     publishers_file: str = "publishers.yml"
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=PROJECT_ROOT / ".env", extra="ignore")
 
     # Relative paths mean "in the project", not "in whatever directory the app started from"
     @field_validator("database_url")
