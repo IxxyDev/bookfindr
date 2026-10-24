@@ -282,3 +282,47 @@ async def test_migration_0007_marks_existing_dates_as_real(tmp_path):
         flag = await conn.scalar(text("SELECT published_date_is_sighting FROM books"))
     await engine.dispose()
     assert flag == 0
+
+
+async def test_migration_0008_normalizes_stored_isbns(tmp_path, caplog):
+    rows = [
+        ("hyphenated", "978-5-459-01330-6", "5-459-01330-x", "2026-01-01 00:00:00"),
+        ("invalid", "12345", "978-5-4", "2026-01-01 00:00:00"),
+        ("older", "978-5-4461-1234-5", None, "2026-01-02 00:00:00"),
+        ("newer", "9785446112345", None, "2026-03-01 00:00:00"),
+    ]
+
+    def seed(sync_conn):
+        _insert(sync_conn, "publishers", id="pub", name="Pub")
+        for book_id, isbn_13, isbn_10, created_at in rows:
+            _insert(
+                sync_conn,
+                "books",
+                id=book_id,
+                title=book_id,
+                publisher_id="pub",
+                isbn_13=isbn_13,
+                isbn_10=isbn_10,
+                created_at=created_at,
+            )
+
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'isbn.db'}")
+    async with engine.begin() as conn:
+        await conn.run_sync(run_migrations, "0007")
+        await conn.run_sync(seed)
+        with caplog.at_level("WARNING"):
+            await conn.run_sync(run_migrations)
+        stored = {
+            book_id: (isbn_13, isbn_10)
+            for book_id, isbn_13, isbn_10 in await conn.execute(
+                text("SELECT id, isbn_13, isbn_10 FROM books")
+            )
+        }
+    await engine.dispose()
+    assert stored == {
+        "hyphenated": ("9785459013306", "545901330X"),
+        "invalid": (None, None),
+        "older": ("9785446112345", None),
+        "newer": (None, None),
+    }
+    assert "newer" in caplog.text and "older" in caplog.text
